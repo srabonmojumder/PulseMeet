@@ -4,23 +4,27 @@ Team chat + video meeting app — real-time chat, voice/video calls, screen shar
 
 Built with **Next.js 16 (App Router) · TypeScript · Tailwind · Prisma/SQLite · Auth.js · Socket.io**, with **LiveKit** planned for the media (audio/video/screen-share) layer.
 
-## Status — Walking skeleton ✅
+## Status
 
-The end-to-end foundation works: authentication + 1:1 real-time text chat.
-
+### Walking skeleton ✅
 - 🔐 **Auth** — email/password register & login (Auth.js credentials, JWT sessions, bcrypt)
 - 💬 **Real-time 1:1 chat** — Socket.io over a custom Next.js server, messages persisted to the DB
 - 🟢 **Presence** — live online/offline indicators
 - ✍️ **Typing indicators**
 - 👥 **Start conversations** — search people and open a direct message
 
+### Calls ✅ (LiveKit)
+- 🎥 **Video calls** & 📞 **voice calls** per conversation
+- 🖥️ **Screen sharing** (built into the call UI)
+- 🔔 **Incoming-call invites** delivered live over the socket, with a Join/Dismiss banner shown anywhere in the app
+- Membership-checked LiveKit access tokens; room name = conversation id
+
 ### Planned next (incremental)
 
-1. Group conversations / team channels
-2. File sharing (uploads + attachments)
-3. **Voice & video calls** via LiveKit
-4. **Screen sharing** via LiveKit
-5. Read receipts, notifications, message history pagination
+1. File sharing (uploads + attachments)
+2. Group conversations / team channels
+3. Read receipts, notifications, message history pagination
+4. Deploy + installable (desktop/mobile) packaging
 
 ## Architecture
 
@@ -39,9 +43,14 @@ Browser ──HTTP──▶ Next.js (App Router, RSC, API routes)
 
 ```bash
 pnpm install
-pnpm db:push          # create the SQLite schema
-pnpm dev              # starts Next.js + Socket.io on http://localhost:3100
+pnpm db:push           # create the SQLite schema
+livekit-server --dev   # in a separate terminal — local media server on :7880
+pnpm dev               # starts Next.js + Socket.io on http://localhost:3100
 ```
+
+> Calls need the LiveKit dev server running (`brew install livekit`, then
+> `livekit-server --dev`). It uses the built-in dev credentials `devkey`/`secret`
+> already set in `.env`.
 
 Open two browsers (or a normal + incognito window), register two accounts, start a conversation, and chat in real time.
 
@@ -55,6 +64,7 @@ Open two browsers (or a normal + incognito window), register two accounts, start
 | `pnpm db:push` | Sync the Prisma schema to SQLite |
 | `pnpm db:studio` | Open Prisma Studio |
 | `pnpm exec tsx scripts/smoke-realtime.ts` | End-to-end realtime chat smoke test |
+| `pnpm exec tsx scripts/smoke-call.ts` | Call layer smoke test (LiveKit + invites) |
 
 ## Environment
 

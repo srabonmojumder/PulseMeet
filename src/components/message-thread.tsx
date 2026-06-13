@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useRealtime } from "@/components/realtime-provider";
 import type { MessageDTO } from "@/lib/realtime-events";
 
@@ -31,6 +32,7 @@ export function MessageThread({
   initialMessages: MessageDTO[];
 }) {
   const { socket, connected, onlineUsers } = useRealtime();
+  const router = useRouter();
   const [messages, setMessages] = useState<MessageDTO[]>(initialMessages);
   const [input, setInput] = useState("");
   const [peerTyping, setPeerTyping] = useState<string | null>(null);
@@ -99,6 +101,12 @@ export function MessageThread({
     }, 1800);
   }
 
+  function startCall(withVideo: boolean) {
+    // Notify the other member(s), then enter the call room.
+    socket?.emit("call:invite", { conversationId, withVideo });
+    router.push(`/call/${conversationId}${withVideo ? "" : "?video=0"}`);
+  }
+
   function send(e: React.FormEvent) {
     e.preventDefault();
     const content = input.trim();
@@ -125,19 +133,21 @@ export function MessageThread({
             </div>
           </div>
         </div>
-        {/* Call controls — wired up in the video/voice phase. */}
+        {/* Call controls */}
         <div className="flex items-center gap-2">
           <button
-            disabled
-            title="Voice call (coming soon)"
-            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-500"
+            onClick={() => startCall(false)}
+            disabled={!connected}
+            title="Start voice call"
+            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
           >
             📞
           </button>
           <button
-            disabled
-            title="Video call (coming soon)"
-            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-500"
+            onClick={() => startCall(true)}
+            disabled={!connected}
+            title="Start video call"
+            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
           >
             🎥
           </button>

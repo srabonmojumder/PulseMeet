@@ -13,6 +13,7 @@ type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Record<strin
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
 const roomFor = (conversationId: string) => `conv:${conversationId}`;
+const userRoom = (userId: string) => `user:${userId}`;
 
 const sendSchema = z.object({
   conversationId: z.string().min(1),
@@ -50,6 +51,10 @@ export function attachRealtime(io: AppServer) {
 
   io.on("connection", (socket: AppSocket) => {
     const { userId, name } = socket.data;
+
+    // Personal room: lets us reach a user (e.g. call invites) regardless of
+    // which conversation they currently have open.
+    socket.join(userRoom(userId));
 
     // Track presence and announce coming online (first socket only).
     const prev = presence.get(userId) ?? 0;
@@ -101,6 +106,23 @@ export function attachRealtime(io: AppServer) {
 
       io.to(roomFor(conversationId)).emit("message:new", dto);
       ack?.({ ok: true, message: dto });
+    });
+
+    socket.on("call:invite", async ({ conversationId, withVideo }) => {
+      if (typeof conversationId !== "string") return;
+      if (!(await isMember(userId, conversationId))) return;
+
+      const members = await prisma.conversationMember.findMany({
+        where: { conversationId, userId: { not: userId } },
+        select: { userId: true },
+      });
+      for (const m of members) {
+        io.to(userRoom(m.userId)).emit("call:incoming", {
+          conversationId,
+          from: { id: userId, name },
+          withVideo: Boolean(withVideo),
+        });
+      }
     });
 
     socket.on("typing", ({ conversationId, isTyping }) => {
