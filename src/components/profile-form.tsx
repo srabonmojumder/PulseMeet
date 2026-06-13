@@ -8,6 +8,29 @@ import { ArrowLeft, Camera, Loader2, Check, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { updateProfile } from "@/app/(app)/settings/actions";
 
+// Downscale + re-encode an image to a square-ish max dimension as JPEG, so
+// large phone photos upload reliably and the stored avatar stays small.
+async function resizeImage(file: File, max = 512): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not process image");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("Could not process image"))),
+      "image/jpeg",
+      0.85,
+    ),
+  );
+}
+
 export function ProfileForm({
   initial,
 }: {
@@ -29,8 +52,11 @@ export function ProfileForm({
     setError(null);
     setUploading(true);
     try {
+      // Phone photos are often several MB — resize client-side so any photo
+      // works and the stored avatar stays small.
+      const blob = await resizeImage(file, 512);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", blob, "avatar.jpg");
       const res = await fetch("/api/avatar", { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Upload failed");
