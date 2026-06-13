@@ -18,7 +18,9 @@ services:
       - key: AUTH_TRUST_HOST
         value: "true"
       # --- set these in the Render dashboard (Environment tab) ---
-      - key: DATABASE_URL # Neon connection string (postgresql://…)
+      - key: DATABASE_URL # Neon POOLED connection string (…-pooler…)
+        sync: false
+      - key: DIRECT_URL # Neon DIRECT connection (no -pooler) — used by prisma db push
         sync: false
       - key: LIVEKIT_API_KEY
         sync: false
