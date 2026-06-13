@@ -16,7 +16,10 @@ export function ChatShell({
 
   return (
     <>
-      <div className={threadOpen ? "hidden sm:block" : "flex w-full sm:block sm:w-auto"}>
+      {/* On >= sm use `contents` so the sidebar <aside> becomes a direct flex
+          child of the layout row and stretches to full height (matching the
+          main pane). On mobile it's a normal full-width block. */}
+      <div className={`${threadOpen ? "hidden" : "flex w-full"} sm:contents`}>
         {sidebar}
       </div>
       <main
