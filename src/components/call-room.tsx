@@ -1,11 +1,7 @@
 "use client";
 
 import "@livekit/components-styles";
-import {
-  LiveKitRoom,
-  VideoConference,
-  RoomAudioRenderer,
-} from "@livekit/components-react";
+import { LiveKitRoom, VideoConference } from "@livekit/components-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -80,8 +76,8 @@ export function CallRoom({
         style={{ height: "100%" }}
         onDisconnected={() => router.push(`/chat/${conversationId}`)}
       >
+        {/* VideoConference already renders remote audio internally. */}
         <VideoConference />
-        <RoomAudioRenderer />
       </LiveKitRoom>
     </div>
   );
