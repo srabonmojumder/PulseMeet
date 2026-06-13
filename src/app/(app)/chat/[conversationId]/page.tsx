@@ -15,12 +15,17 @@ export default async function ConversationPage({
   const conversation = await getConversationForUser(conversationId, userId);
   if (!conversation) notFound();
 
-  const title = conversation.otherUser?.name ?? conversation.name ?? "Conversation";
+  const isGroup = conversation.type === "GROUP";
+  const title = isGroup
+    ? conversation.name ?? "Group"
+    : conversation.otherUser?.name ?? "Conversation";
 
   return (
     <MessageThread
       conversationId={conversation.id}
       title={title}
+      isGroup={isGroup}
+      memberCount={conversation.memberCount}
       otherUserId={conversation.otherUser?.id ?? null}
       otherUserImage={conversation.otherUser?.image ?? null}
       currentUserId={userId}

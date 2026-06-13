@@ -27,7 +27,13 @@ export async function updateProfile(input: {
   const { name, bio, image } = parsed.data;
   const user = await prisma.user.update({
     where: { id: session.user.id },
-    data: { name, bio: bio ?? null, image: image ?? null },
+    data: {
+      name,
+      bio: bio ?? null,
+      image: image ?? null,
+      // If the photo was removed, also clear the stored bytes.
+      ...(image ? {} : { avatarData: null, avatarType: null }),
+    },
     select: { name: true, bio: true, image: true },
   });
 

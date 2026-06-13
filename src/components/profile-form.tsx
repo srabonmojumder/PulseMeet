@@ -31,7 +31,7 @@ export function ProfileForm({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await fetch("/api/avatar", { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Upload failed");
       setImage(data.url);

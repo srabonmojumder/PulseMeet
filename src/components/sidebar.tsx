@@ -2,12 +2,33 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { Search, SquarePen, X, MessagesSquare, Loader2, Paperclip } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import {
+  Search,
+  SquarePen,
+  X,
+  MessagesSquare,
+  Loader2,
+  Paperclip,
+  Users,
+  Check,
+} from "lucide-react";
 import type { ConversationListItem } from "@/lib/queries";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
-import { searchUsers, startDirectConversation } from "@/app/(app)/chat/actions";
+import {
+  searchUsers,
+  startDirectConversation,
+  createGroupConversation,
+} from "@/app/(app)/chat/actions";
+
+function GroupAvatar() {
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+      <Users size={18} />
+    </div>
+  );
+}
 
 export function Sidebar({
   conversations,
@@ -33,7 +54,7 @@ export function Sidebar({
         <h2 className="text-sm font-semibold text-white">Messages</h2>
         <button
           onClick={() => setShowNew(true)}
-          title="New conversation"
+          title="New conversation or group"
           className="brand-gradient flex h-8 w-8 items-center justify-center rounded-lg text-white shadow-md shadow-indigo-500/25 transition hover:opacity-95"
         >
           <SquarePen size={16} />
@@ -62,13 +83,16 @@ export function Sidebar({
           </div>
         )}
         {filtered.map((c) => {
-          const title = c.otherUser?.name ?? c.name ?? "Conversation";
-          const online = c.otherUser ? onlineUsers.has(c.otherUser.id) : false;
+          const isGroup = c.type === "GROUP";
+          const title = isGroup ? c.name ?? "Group" : c.otherUser?.name ?? "Conversation";
+          const online = !isGroup && c.otherUser ? onlineUsers.has(c.otherUser.id) : false;
           const isActive = c.id === activeId;
           const isAttachmentOnly = !!c.lastMessage && !c.lastMessage.content;
           const prefix = c.lastMessage?.senderId === currentUserId ? "You: " : "";
           const preview = !c.lastMessage
-            ? "No messages yet"
+            ? isGroup
+              ? `${c.memberCount} members`
+              : "No messages yet"
             : isAttachmentOnly
               ? `${prefix}Attachment`
               : `${prefix}${c.lastMessage.content}`;
@@ -80,7 +104,11 @@ export function Sidebar({
                 isActive ? "bg-white/10" : "hover:bg-white/5"
               }`}
             >
-              <Avatar name={title} image={c.otherUser?.image} online={online} />
+              {isGroup ? (
+                <GroupAvatar />
+              ) : (
+                <Avatar name={title} image={c.otherUser?.image} online={online} />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-white">{title}</div>
                 <div className="flex items-center gap-1 truncate text-xs text-white/40">
@@ -98,27 +126,59 @@ export function Sidebar({
   );
 }
 
+type FoundUser = { id: string; name: string; email: string; image: string | null };
+
 function NewChatModal({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
+  const [mode, setMode] = useState<"direct" | "group">("direct");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<
-    { id: string; name: string; email: string; image: string | null }[]
-  >([]);
+  const [results, setResults] = useState<FoundUser[]>([]);
   const [pending, startTransition] = useTransition();
+
+  // group mode
+  const [groupName, setGroupName] = useState("");
+  const [selected, setSelected] = useState<FoundUser[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   function runSearch(q: string) {
     setQuery(q);
     startTransition(async () => setResults(await searchUsers(q)));
   }
 
-  function pick(userId: string) {
+  function pickDirect(userId: string) {
     startTransition(async () => {
       await startDirectConversation(userId);
     });
   }
 
+  function toggleSelect(u: FoundUser) {
+    setSelected((prev) =>
+      prev.some((s) => s.id === u.id) ? prev.filter((s) => s.id !== u.id) : [...prev, u],
+    );
+  }
+
+  function createGroup() {
+    setError(null);
+    startTransition(async () => {
+      const res = await createGroupConversation(
+        groupName,
+        selected.map((s) => s.id),
+      );
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+      if (res?.id) {
+        onClose();
+        router.push(`/chat/${res.id}`);
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 pt-28 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 pt-24 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -126,11 +186,54 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-white">Start a conversation</h3>
+          <h3 className="text-base font-semibold text-white">
+            {mode === "direct" ? "New conversation" : "New group"}
+          </h3>
           <button onClick={onClose} className="text-white/40 transition hover:text-white">
             <X size={18} />
           </button>
         </div>
+
+        {/* Mode toggle */}
+        <div className="mb-3 flex gap-1 rounded-xl bg-white/5 p-1">
+          {(["direct", "group"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${
+                mode === m ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
+              }`}
+            >
+              {m === "direct" ? "Direct" : "Group"}
+            </button>
+          ))}
+        </div>
+
+        {mode === "group" && (
+          <input
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+            placeholder="Group name…"
+            className="mb-2 w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/60"
+          />
+        )}
+
+        {mode === "group" && selected.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {selected.map((u) => (
+              <span
+                key={u.id}
+                className="flex items-center gap-1 rounded-full bg-indigo-500/20 py-1 pl-2.5 pr-1.5 text-xs text-indigo-200"
+              >
+                {u.name}
+                <button onClick={() => toggleSelect(u)} className="hover:text-white">
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3">
           <Search size={16} className="text-white/40" />
           <input
@@ -142,26 +245,52 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
           />
           {pending && <Loader2 size={16} className="animate-spin text-white/40" />}
         </div>
-        <div className="max-h-72 overflow-y-auto">
+
+        <div className="max-h-64 overflow-y-auto">
           {!pending && results.length === 0 && (
             <p className="px-1 py-3 text-sm text-white/40">
               {query ? "No people found." : "Type to search for people."}
             </p>
           )}
-          {results.map((u) => (
-            <button
-              key={u.id}
-              onClick={() => pick(u.id)}
-              className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/5"
-            >
-              <Avatar name={u.name} image={u.image} />
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-white">{u.name}</div>
-                <div className="truncate text-xs text-white/40">{u.email}</div>
-              </div>
-            </button>
-          ))}
+          {results.map((u) => {
+            const isSel = selected.some((s) => s.id === u.id);
+            return (
+              <button
+                key={u.id}
+                onClick={() => (mode === "direct" ? pickDirect(u.id) : toggleSelect(u))}
+                className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/5"
+              >
+                <Avatar name={u.name} image={u.image} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-white">{u.name}</div>
+                  <div className="truncate text-xs text-white/40">{u.email}</div>
+                </div>
+                {mode === "group" && (
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                      isSel ? "border-indigo-500 bg-indigo-500 text-white" : "border-white/20"
+                    }`}
+                  >
+                    {isSel && <Check size={13} />}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
+
+        {error && <p className="mt-2 text-sm text-rose-400">{error}</p>}
+
+        {mode === "group" && (
+          <button
+            onClick={createGroup}
+            disabled={pending || !groupName.trim() || selected.length < 2}
+            className="brand-gradient mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium text-white shadow-lg shadow-indigo-500/25 transition hover:opacity-95 disabled:opacity-40"
+          >
+            {pending ? <Loader2 size={16} className="animate-spin" /> : <Users size={16} />}
+            Create group ({selected.length} selected)
+          </button>
+        )}
       </div>
     </div>
   );

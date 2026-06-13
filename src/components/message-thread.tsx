@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   MessageCircle,
   Loader2,
+  Users,
 } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
@@ -36,6 +37,8 @@ function formatTime(iso: string) {
 export function MessageThread({
   conversationId,
   title,
+  isGroup = false,
+  memberCount = 0,
   otherUserId,
   otherUserImage,
   currentUserId,
@@ -43,6 +46,8 @@ export function MessageThread({
 }: {
   conversationId: string;
   title: string;
+  isGroup?: boolean;
+  memberCount?: number;
   otherUserId: string | null;
   otherUserImage?: string | null;
   currentUserId: string;
@@ -180,14 +185,28 @@ export function MessageThread({
           >
             <ArrowLeft size={18} />
           </Link>
-          <Avatar name={title} image={otherUserImage} online={online} />
+          {isGroup ? (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+              <Users size={18} />
+            </div>
+          ) : (
+            <Avatar name={title} image={otherUserImage} online={online} />
+          )}
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-white">{title}</div>
             <div className="flex items-center gap-1.5 text-xs text-white/40">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400" : "bg-white/30"}`}
-              />
-              {online ? "Active now" : "Offline"}
+              {isGroup ? (
+                <>
+                  <Users size={12} /> {memberCount} members
+                </>
+              ) : (
+                <>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400" : "bg-white/30"}`}
+                  />
+                  {online ? "Active now" : "Offline"}
+                </>
+              )}
             </div>
           </div>
         </div>

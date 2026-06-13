@@ -19,6 +19,8 @@ model User {
   passwordHash String
   image        String?
   bio          String?
+  avatarData   Bytes? // profile photo bytes, stored in DB so it survives redeploys
+  avatarType   String? // mime type of avatarData
   createdAt    DateTime @default(now())
 
   memberships ConversationMember[]

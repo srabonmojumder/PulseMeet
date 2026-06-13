@@ -6,6 +6,7 @@ export interface ConversationListItem {
   name: string | null;
   /** The "other" participant for DIRECT conversations. */
   otherUser: { id: string; name: string; image: string | null } | null;
+  memberCount: number;
   lastMessage: { content: string; createdAt: string; senderId: string } | null;
   updatedAt: string;
 }
@@ -36,6 +37,7 @@ export async function getConversationsForUser(
       type: c.type,
       name: c.name,
       otherUser: other,
+      memberCount: c.members.length,
       lastMessage: last
         ? {
             content: last.content,
@@ -72,12 +74,15 @@ export async function getConversationForUser(conversationId: string, userId: str
   });
 
   const otherUser = conversation.members.find((m) => m.userId !== userId)?.user ?? null;
+  const members = conversation.members.map((m) => m.user);
 
   return {
     id: conversation.id,
     type: conversation.type,
     name: conversation.name,
     otherUser,
+    members,
+    memberCount: members.length,
     messages: messages.map((m) => ({
       id: m.id,
       conversationId: m.conversationId,
