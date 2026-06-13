@@ -28,7 +28,7 @@ export function Sidebar({
   });
 
   return (
-    <aside className="glass flex w-full max-w-xs shrink-0 flex-col overflow-hidden sm:w-80 sm:rounded-2xl">
+    <aside className="glass flex w-full shrink-0 flex-col overflow-hidden sm:w-80 sm:rounded-2xl">
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <h2 className="text-sm font-semibold text-white">Messages</h2>
         <button
@@ -80,7 +80,7 @@ export function Sidebar({
                 isActive ? "bg-white/10" : "hover:bg-white/5"
               }`}
             >
-              <Avatar name={title} online={online} />
+              <Avatar name={title} image={c.otherUser?.image} online={online} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-white">{title}</div>
                 <div className="flex items-center gap-1 truncate text-xs text-white/40">
@@ -154,7 +154,7 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
               onClick={() => pick(u.id)}
               className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/5"
             >
-              <Avatar name={u.name} />
+              <Avatar name={u.name} image={u.image} />
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-white">{u.name}</div>
                 <div className="truncate text-xs text-white/40">{u.email}</div>

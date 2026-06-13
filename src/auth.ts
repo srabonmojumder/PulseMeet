@@ -68,8 +68,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return realBase;
     },
-    jwt({ token, user }) {
+    jwt({ token, user, trigger, session }) {
       if (user) token.id = user.id as string;
+      // Reflect profile edits into the session without re-login.
+      if (trigger === "update" && session) {
+        if (session.name) token.name = session.name;
+        if (session.image !== undefined) token.picture = session.image;
+      }
       return token;
     },
     session({ session, token }) {

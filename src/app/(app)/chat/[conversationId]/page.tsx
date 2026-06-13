@@ -22,6 +22,7 @@ export default async function ConversationPage({
       conversationId={conversation.id}
       title={title}
       otherUserId={conversation.otherUser?.id ?? null}
+      otherUserImage={conversation.otherUser?.image ?? null}
       currentUserId={userId}
       initialMessages={conversation.messages}
     />

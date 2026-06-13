@@ -17,6 +17,7 @@ model User {
   name         String
   passwordHash String
   image        String?
+  bio          String?
   createdAt    DateTime @default(now())
 
   memberships ConversationMember[]

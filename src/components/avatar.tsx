@@ -32,21 +32,32 @@ const sizeMap = {
 
 export function Avatar({
   name,
+  image,
   size = "md",
   online,
 }: {
   name: string;
+  image?: string | null;
   size?: keyof typeof sizeMap;
   online?: boolean;
 }) {
   const gradient = GRADIENTS[hash(name) % GRADIENTS.length];
   return (
     <div className="relative shrink-0">
-      <div
-        className={`flex items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ${gradient} ${sizeMap[size]}`}
-      >
-        {initials(name) || "?"}
-      </div>
+      {image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={image}
+          alt={name}
+          className={`rounded-full object-cover ${sizeMap[size]}`}
+        />
+      ) : (
+        <div
+          className={`flex items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ${gradient} ${sizeMap[size]}`}
+        >
+          {initials(name) || "?"}
+        </div>
+      )}
       {online !== undefined && (
         <span
           className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a0a12] ${

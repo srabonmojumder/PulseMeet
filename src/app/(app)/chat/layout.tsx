@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { getConversationsForUser } from "@/lib/queries";
 import { Sidebar } from "@/components/sidebar";
+import { ChatShell } from "@/components/chat-shell";
 
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -8,11 +9,8 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
   const conversations = await getConversationsForUser(userId);
 
   return (
-    <>
-      <Sidebar conversations={conversations} currentUserId={userId} />
-      <main className="glass flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden sm:rounded-2xl">
-        {children}
-      </main>
-    </>
+    <ChatShell sidebar={<Sidebar conversations={conversations} currentUserId={userId} />}>
+      {children}
+    </ChatShell>
   );
 }

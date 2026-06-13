@@ -37,12 +37,14 @@ export function MessageThread({
   conversationId,
   title,
   otherUserId,
+  otherUserImage,
   currentUserId,
   initialMessages,
 }: {
   conversationId: string;
   title: string;
   otherUserId: string | null;
+  otherUserImage?: string | null;
   currentUserId: string;
   initialMessages: MessageDTO[];
 }) {
@@ -178,7 +180,7 @@ export function MessageThread({
           >
             <ArrowLeft size={18} />
           </Link>
-          <Avatar name={title} online={online} />
+          <Avatar name={title} image={otherUserImage} online={online} />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-white">{title}</div>
             <div className="flex items-center gap-1.5 text-xs text-white/40">

@@ -1,18 +1,43 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { LogOut, Wifi, WifiOff } from "lucide-react";
+import { LogOut, Wifi, WifiOff, Settings, ChevronDown } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Logo } from "@/components/logo";
 import { Avatar } from "@/components/avatar";
+import { InstallButton } from "@/components/install-button";
 
-export function TopBar({ name, email }: { name: string; email: string }) {
+export function TopBar({
+  name,
+  email,
+  image,
+}: {
+  name: string;
+  email: string;
+  image: string | null;
+}) {
   const { connected } = useRealtime();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
 
   return (
     <header className="glass flex h-16 shrink-0 items-center justify-between px-4 sm:px-5">
       <div className="flex items-center gap-3">
-        <Logo size="sm" />
+        <Link href="/chat">
+          <Logo size="sm" />
+        </Link>
         <span
           className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs sm:inline-flex ${
             connected
@@ -26,19 +51,46 @@ export function TopBar({ name, email }: { name: string; email: string }) {
         </span>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="hidden text-right leading-tight sm:block">
-          <div className="text-sm font-medium text-white">{name}</div>
-          <div className="text-xs text-white/40">{email}</div>
+      <div className="flex items-center gap-2">
+        <InstallButton />
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-2 rounded-xl border border-white/10 py-1 pl-1 pr-2 transition hover:bg-white/5"
+          >
+            <Avatar name={name} image={image} size="sm" />
+            <span className="hidden max-w-32 truncate text-sm font-medium text-white sm:block">
+              {name}
+            </span>
+            <ChevronDown size={15} className="text-white/40" />
+          </button>
+
+          {open && (
+            <div className="glass pm-rise absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl p-1.5 shadow-2xl">
+              <div className="flex items-center gap-3 px-2.5 py-2">
+                <Avatar name={name} image={image} size="md" />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-white">{name}</div>
+                  <div className="truncate text-xs text-white/40">{email}</div>
+                </div>
+              </div>
+              <div className="my-1 h-px bg-white/10" />
+              <Link
+                href="/settings"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-white/80 transition hover:bg-white/5"
+              >
+                <Settings size={16} /> Profile &amp; settings
+              </Link>
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-rose-300 transition hover:bg-rose-500/10"
+              >
+                <LogOut size={16} /> Sign out
+              </button>
+            </div>
+          )}
         </div>
-        <Avatar name={name} size="sm" />
-        <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
-          title="Sign out"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/60 transition hover:bg-white/5 hover:text-white"
-        >
-          <LogOut size={17} />
-        </button>
       </div>
     </header>
   );
