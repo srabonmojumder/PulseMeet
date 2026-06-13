@@ -1,41 +1,43 @@
 "use client";
 
 import { signOut } from "next-auth/react";
+import { LogOut, Wifi, WifiOff } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
+import { Logo } from "@/components/logo";
+import { Avatar } from "@/components/avatar";
 
 export function TopBar({ name, email }: { name: string; email: string }) {
   const { connected } = useRealtime();
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4">
-      <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-sm font-bold text-white">
-          P
-        </div>
-        <span className="font-semibold text-white">PulseMeet</span>
+    <header className="glass flex h-16 shrink-0 items-center justify-between px-4 sm:px-5">
+      <div className="flex items-center gap-3">
+        <Logo size="sm" />
         <span
-          className={`ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
-            connected ? "bg-emerald-500/15 text-emerald-400" : "bg-slate-700 text-slate-400"
+          className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs sm:inline-flex ${
+            connected
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+              : "border-white/10 bg-white/5 text-white/50"
           }`}
           title={connected ? "Realtime connected" : "Connecting…"}
         >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-slate-500"}`}
-          />
-          {connected ? "Online" : "Connecting"}
+          {connected ? <Wifi size={13} /> : <WifiOff size={13} className="pm-pulse" />}
+          {connected ? "Connected" : "Connecting"}
         </span>
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="text-right leading-tight">
+        <div className="hidden text-right leading-tight sm:block">
           <div className="text-sm font-medium text-white">{name}</div>
-          <div className="text-xs text-slate-500">{email}</div>
+          <div className="text-xs text-white/40">{email}</div>
         </div>
+        <Avatar name={name} size="sm" />
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-slate-800"
+          title="Sign out"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/60 transition hover:bg-white/5 hover:text-white"
         >
-          Sign out
+          <LogOut size={17} />
         </button>
       </div>
     </header>

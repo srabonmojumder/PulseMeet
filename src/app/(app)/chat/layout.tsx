@@ -10,7 +10,9 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
   return (
     <>
       <Sidebar conversations={conversations} currentUserId={userId} />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-950">{children}</main>
+      <main className="glass flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden sm:rounded-2xl">
+        {children}
+      </main>
     </>
   );
 }

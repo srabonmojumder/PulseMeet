@@ -9,6 +9,7 @@ import {
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Loader2, PhoneOff, ArrowLeft } from "lucide-react";
 
 export function CallRoom({
   conversationId,
@@ -43,13 +44,16 @@ export function CallRoom({
 
   if (error) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <p className="text-red-400">{error}</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/15 text-rose-400">
+          <PhoneOff size={26} />
+        </div>
+        <p className="text-rose-400">{error}</p>
         <Link
           href={`/chat/${conversationId}`}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+          className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/5"
         >
-          Back to chat
+          <ArrowLeft size={16} /> Back to chat
         </Link>
       </div>
     );
@@ -57,7 +61,8 @@ export function CallRoom({
 
   if (!conn) {
     return (
-      <div className="flex flex-1 items-center justify-center text-slate-400">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-white/50">
+        <Loader2 size={28} className="animate-spin text-indigo-400" />
         Connecting to call…
       </div>
     );

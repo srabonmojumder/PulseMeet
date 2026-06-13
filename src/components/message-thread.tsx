@@ -2,7 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import {
+  Phone,
+  Video,
+  Paperclip,
+  SendHorizontal,
+  X,
+  FileText,
+  Download,
+  ArrowLeft,
+  MessageCircle,
+  Loader2,
+} from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
+import { Avatar } from "@/components/avatar";
 import type { AttachmentDTO, MessageDTO } from "@/lib/realtime-events";
 
 function formatBytes(bytes: number) {
@@ -13,15 +27,6 @@ function formatBytes(bytes: number) {
 
 function isImage(contentType: string) {
   return contentType.startsWith("image/");
-}
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }
 
 function formatTime(iso: string) {
@@ -69,9 +74,7 @@ export function MessageThread({
 
     const onMessage = (msg: MessageDTO) => {
       if (msg.conversationId !== conversationId) return;
-      setMessages((prev) =>
-        prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
-      );
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
     };
 
     const onTyping = (data: {
@@ -162,17 +165,26 @@ export function MessageThread({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  const canSend = connected && !uploading && (input.trim().length > 0 || pendingFiles.length > 0);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Header */}
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600/80 text-sm font-semibold text-white">
-            {initials(title)}
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-white">{title}</div>
-            <div className="text-xs text-slate-500">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/5 px-4 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            href="/chat"
+            className="-ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/5 hover:text-white sm:hidden"
+          >
+            <ArrowLeft size={18} />
+          </Link>
+          <Avatar name={title} online={online} />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-white">{title}</div>
+            <div className="flex items-center gap-1.5 text-xs text-white/40">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400" : "bg-white/30"}`}
+              />
               {online ? "Active now" : "Offline"}
             </div>
           </div>
@@ -183,57 +195,63 @@ export function MessageThread({
             onClick={() => startCall(false)}
             disabled={!connected}
             title="Start voice call"
-            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40"
           >
-            📞
+            <Phone size={17} />
           </button>
           <button
             onClick={() => startCall(true)}
             disabled={!connected}
             title="Start video call"
-            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-indigo-500/40 hover:bg-indigo-500/10 hover:text-indigo-400 disabled:opacity-40"
           >
-            🎥
+            <Video size={17} />
           </button>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4 sm:px-6">
         {messages.length === 0 && (
-          <p className="py-10 text-center text-sm text-slate-500">
-            No messages yet. Say hello! 👋
-          </p>
+          <div className="flex flex-col items-center gap-2 py-16 text-center">
+            <MessageCircle size={32} className="text-white/20" />
+            <p className="text-sm text-white/40">No messages yet. Say hello! 👋</p>
+          </div>
         )}
-        {messages.map((m) => {
+        {messages.map((m, i) => {
           const mine = m.sender.id === currentUserId;
+          const prev = messages[i - 1];
+          const grouped = prev && prev.sender.id === m.sender.id;
           return (
-            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+            <div
+              key={m.id}
+              className={`flex ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-3"}`}
+            >
               <div
-                className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                className={`max-w-[78%] px-4 py-2 text-sm shadow-sm sm:max-w-[68%] ${
                   mine
-                    ? "rounded-br-sm bg-indigo-600 text-white"
-                    : "rounded-bl-sm bg-slate-800 text-slate-100"
+                    ? "brand-gradient rounded-2xl rounded-br-md text-white"
+                    : "rounded-2xl rounded-bl-md border border-white/10 bg-white/[0.06] text-slate-100"
                 }`}
               >
-                {!mine && (
-                  <div className="mb-0.5 text-xs font-medium text-indigo-300">
+                {!mine && !grouped && (
+                  <div className="mb-0.5 text-xs font-semibold text-indigo-300">
                     {m.sender.name}
                   </div>
                 )}
                 {m.content && (
-                  <div className="whitespace-pre-wrap break-words text-sm">{m.content}</div>
+                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
                 )}
                 {m.attachments.length > 0 && (
-                  <div className="mt-1 space-y-2">
+                  <div className="mt-1.5 space-y-1.5">
                     {m.attachments.map((a) =>
                       isImage(a.contentType) ? (
-                        <a key={a.url} href={a.url} target="_blank" rel="noreferrer">
+                        <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="block">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={a.url}
                             alt={a.name}
-                            className="max-h-60 rounded-lg border border-black/10"
+                            className="max-h-64 rounded-xl border border-white/10"
                           />
                         </a>
                       ) : (
@@ -243,25 +261,22 @@ export function MessageThread({
                           target="_blank"
                           rel="noreferrer"
                           download={a.name}
-                          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-                            mine ? "bg-indigo-500/40" : "bg-slate-700/60"
+                          className={`group flex items-center gap-3 rounded-xl px-3 py-2 ${
+                            mine ? "bg-white/15" : "bg-white/[0.06]"
                           }`}
                         >
-                          <span className="text-lg">📎</span>
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">{a.name}</span>
-                            <span className="block text-[10px] opacity-70">
-                              {formatBytes(a.size)}
-                            </span>
+                          <FileText size={20} className="shrink-0 opacity-80" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium">{a.name}</span>
+                            <span className="block text-[11px] opacity-70">{formatBytes(a.size)}</span>
                           </span>
+                          <Download size={16} className="shrink-0 opacity-50 transition group-hover:opacity-100" />
                         </a>
                       ),
                     )}
                   </div>
                 )}
-                <div
-                  className={`mt-1 text-[10px] ${mine ? "text-indigo-200" : "text-slate-500"}`}
-                >
+                <div className={`mt-1 text-right text-[10px] ${mine ? "text-white/70" : "text-white/35"}`}>
                   {formatTime(m.createdAt)}
                 </div>
               </div>
@@ -269,31 +284,36 @@ export function MessageThread({
           );
         })}
         {peerTyping && (
-          <div className="text-xs italic text-slate-500">{peerTyping} is typing…</div>
+          <div className="flex items-center gap-1.5 pt-2 text-xs text-white/40">
+            <span className="flex gap-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-white/40 pm-pulse" style={{ animationDelay: "0ms" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-white/40 pm-pulse" style={{ animationDelay: "200ms" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-white/40 pm-pulse" style={{ animationDelay: "400ms" }} />
+            </span>
+            {peerTyping} is typing…
+          </div>
         )}
         <div ref={bottomRef} />
       </div>
 
       {/* Composer */}
-      <form
-        onSubmit={send}
-        className="shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3"
-      >
+      <form onSubmit={send} className="shrink-0 border-t border-white/5 px-3 py-3 sm:px-4">
         {pendingFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {pendingFiles.map((f, i) => (
               <span
                 key={`${f.name}-${i}`}
-                className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-200"
+                className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-3 pr-2 text-xs text-white/80"
               >
-                📎 <span className="max-w-40 truncate">{f.name}</span>
-                <span className="opacity-60">{formatBytes(f.size)}</span>
+                <Paperclip size={12} />
+                <span className="max-w-40 truncate">{f.name}</span>
+                <span className="opacity-50">{formatBytes(f.size)}</span>
                 <button
                   type="button"
                   onClick={() => setPendingFiles((p) => p.filter((_, j) => j !== i))}
-                  className="text-slate-400 hover:text-white"
+                  className="flex h-4 w-4 items-center justify-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white"
                 >
-                  ✕
+                  <X size={12} />
                 </button>
               </span>
             ))}
@@ -315,23 +335,28 @@ export function MessageThread({
             onClick={() => fileInputRef.current?.click()}
             disabled={!connected}
             title="Attach files"
-            className="rounded-full border border-slate-700 px-3 py-2 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white/60 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
           >
-            📎
+            <Paperclip size={19} />
           </button>
           <input
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
             placeholder={connected ? "Type a message…" : "Connecting…"}
             disabled={!connected}
-            className="flex-1 rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-white outline-none focus:border-indigo-500 disabled:opacity-50"
+            className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-indigo-500/60 focus:bg-white/[0.07] disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={!connected || uploading || (!input.trim() && pendingFiles.length === 0)}
-            className="rounded-full bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+            disabled={!canSend}
+            title="Send"
+            className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-lg shadow-indigo-500/25 transition hover:opacity-95 disabled:opacity-40 disabled:shadow-none"
           >
-            {uploading ? "Sending…" : "Send"}
+            {uploading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <SendHorizontal size={18} />
+            )}
           </button>
         </div>
       </form>

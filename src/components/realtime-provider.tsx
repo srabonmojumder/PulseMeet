@@ -10,6 +10,7 @@ import {
 } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
+import { Phone, Video, PhoneCall, PhoneOff } from "lucide-react";
 import type {
   CallInvite,
   ClientToServerEvents,
@@ -132,17 +133,17 @@ function IncomingCallBanner({
     );
   }
 
+  const CallIcon = invite.withVideo ? Video : Phone;
+
   return (
-    <div className="fixed bottom-6 right-6 z-[100] w-80 rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+    <div className="glass pm-rise fixed bottom-6 right-6 z-[100] w-80 rounded-2xl p-4 shadow-2xl shadow-black/50">
       <div className="mb-3 flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-indigo-600 text-lg">
-          {invite.withVideo ? "🎥" : "📞"}
+        <div className="brand-gradient flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-indigo-500/30">
+          <CallIcon size={22} className="pm-pulse" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-white">
-            {invite.from.name}
-          </div>
-          <div className="text-xs text-slate-400">
+          <div className="truncate text-sm font-semibold text-white">{invite.from.name}</div>
+          <div className="text-xs text-white/50">
             Incoming {invite.withVideo ? "video" : "voice"} call…
           </div>
         </div>
@@ -150,15 +151,15 @@ function IncomingCallBanner({
       <div className="flex gap-2">
         <button
           onClick={join}
-          className="flex-1 rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500"
         >
-          Join
+          <PhoneCall size={16} /> Join
         </button>
         <button
           onClick={onDismiss}
-          className="flex-1 rounded-lg border border-slate-700 py-2 text-sm text-slate-300 transition hover:bg-slate-800"
+          className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 py-2.5 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
         >
-          Dismiss
+          <PhoneOff size={16} /> Dismiss
         </button>
       </div>
     </div>
