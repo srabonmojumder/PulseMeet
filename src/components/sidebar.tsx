@@ -138,6 +138,7 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
   // group mode
   const [groupName, setGroupName] = useState("");
   const [selected, setSelected] = useState<FoundUser[]>([]);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function runSearch(q: string) {
@@ -157,11 +158,16 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
     );
   }
 
-  function createGroup() {
+  async function createGroup() {
+    if (selected.length < 2 || creating) return;
     setError(null);
-    startTransition(async () => {
+    setCreating(true);
+    // Group name optional — default to the members' first names.
+    const name =
+      groupName.trim() || selected.map((s) => s.name.split(" ")[0]).join(", ");
+    try {
       const res = await createGroupConversation(
-        groupName,
+        name,
         selected.map((s) => s.id),
       );
       if (res?.error) {
@@ -173,7 +179,11 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
         router.push(`/chat/${res.id}`);
         router.refresh();
       }
-    });
+    } catch {
+      setError("Could not create the group. Please try again.");
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
@@ -213,7 +223,7 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
           <input
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
-            placeholder="Group name…"
+            placeholder="Group name (optional)…"
             className="mb-2 w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/60"
           />
         )}
@@ -284,11 +294,13 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
         {mode === "group" && (
           <button
             onClick={createGroup}
-            disabled={pending || !groupName.trim() || selected.length < 2}
+            disabled={creating || selected.length < 2}
             className="brand-gradient mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium text-white shadow-lg shadow-indigo-500/25 transition hover:opacity-95 disabled:opacity-40"
           >
-            {pending ? <Loader2 size={16} className="animate-spin" /> : <Users size={16} />}
-            Create group ({selected.length} selected)
+            {creating ? <Loader2 size={16} className="animate-spin" /> : <Users size={16} />}
+            {selected.length < 2
+              ? "Select at least 2 people"
+              : `Create group (${selected.length} selected)`}
           </button>
         )}
       </div>
