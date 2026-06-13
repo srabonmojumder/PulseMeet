@@ -18,7 +18,6 @@ export const metadata: Metadata = {
   title: "PulseMeet",
   description: "Team chat & video meetings — real-time messaging, calls, and screen sharing.",
   appleWebApp: { capable: true, title: "PulseMeet", statusBarStyle: "black-translucent" },
-  icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
