@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { AccessToken } from "livekit-server-sdk";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -34,8 +35,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "LiveKit not configured" }, { status: 500 });
   }
 
+  // Unique identity per connection so the same user can join from multiple
+  // devices/tabs without LiveKit kicking the earlier session (duplicate
+  // identity). The display name still shows who they are.
   const at = new AccessToken(apiKey, apiSecret, {
-    identity: session.user.id,
+    identity: `${session.user.id}__${randomUUID().slice(0, 8)}`,
     name: session.user.name ?? "User",
     ttl: "2h",
   });
