@@ -26,7 +26,12 @@ app.prepare().then(() => {
     Record<string, never>,
     SocketData
   >(httpServer, {
-    cors: { origin: process.env.NEXT_PUBLIC_APP_URL || true, credentials: true },
+    // Permissive in dev so phones/tunnels on other origins can connect;
+    // locked to the app URL in production.
+    cors: {
+      origin: dev ? true : process.env.NEXT_PUBLIC_APP_URL || true,
+      credentials: true,
+    },
   });
 
   attachRealtime(io);
