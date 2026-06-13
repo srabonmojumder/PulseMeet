@@ -16,6 +16,7 @@ import {
   Loader2,
   Users,
   Smile,
+  Heart,
 } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
@@ -130,14 +131,33 @@ export function MessageThread({
   const emitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef("");
   const [livePreview, setLivePreview] = useState<{ name: string; text: string } | null>(null);
+  const [peerActive, setPeerActive] = useState<Set<string>>(new Set());
+  const [flying, setFlying] = useState<{ id: string; emoji: string; left: number }[]>([]);
+  const flyId = useRef(0);
 
   const online = otherUserId ? onlineUsers.has(otherUserId) : false;
+  // Co-presence: is the other person actively viewing THIS chat right now?
+  const peerHere = otherUserId ? peerActive.has(otherUserId) : false;
+  const groupHereCount = peerActive.size;
+
+  function spawnFly(emoji: string) {
+    const id = `${flyId.current++}`;
+    const left = 8 + Math.random() * 78; // % from left
+    setFlying((f) => [...f, { id, emoji, left }]);
+    setTimeout(() => setFlying((f) => f.filter((x) => x.id !== id)), 1800);
+  }
+
+  function sendReaction(emoji: string) {
+    socket?.emit("reaction:fly", { conversationId, emoji });
+    spawnFly(emoji);
+  }
 
   // Reset thread state when navigating between conversations.
   useEffect(() => {
     setMessages(initialMessages);
     setPeerTyping(null);
     setLivePreview(null);
+    setPeerActive(new Set());
   }, [conversationId, initialMessages]);
 
   // Join the conversation room and subscribe to events.
@@ -175,13 +195,40 @@ export function MessageThread({
       }
     };
 
+    const onPresence = (data: {
+      conversationId: string;
+      userId: string;
+      active: boolean;
+    }) => {
+      if (data.conversationId !== conversationId || data.userId === currentUserId) return;
+      setPeerActive((prev) => {
+        const next = new Set(prev);
+        if (data.active) next.add(data.userId);
+        else next.delete(data.userId);
+        return next;
+      });
+    };
+
+    const onFly = (data: { conversationId: string; userId: string; emoji: string }) => {
+      if (data.conversationId !== conversationId || data.userId === currentUserId) return;
+      spawnFly(data.emoji);
+    };
+
     socket.on("message:new", onMessage);
     socket.on("typing", onTyping);
+    socket.on("convo:presence", onPresence);
+    socket.on("reaction:fly", onFly);
+
+    // Announce I'm actively viewing this conversation (co-presence).
+    socket.emit("convo:active", { conversationId, active: true });
 
     return () => {
+      socket.emit("convo:active", { conversationId, active: false });
       socket.emit("conversation:leave", conversationId);
       socket.off("message:new", onMessage);
       socket.off("typing", onTyping);
+      socket.off("convo:presence", onPresence);
+      socket.off("reaction:fly", onFly);
     };
   }, [socket, connected, conversationId, currentUserId]);
 
@@ -289,7 +336,20 @@ export function MessageThread({
   const canSend = connected && !uploading && (input.trim().length > 0 || pendingFiles.length > 0);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* Floating reactions overlay (synchronized across members) */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-20 z-30 overflow-hidden">
+        {flying.map((f) => (
+          <span
+            key={f.id}
+            className="pm-float absolute text-3xl"
+            style={{ left: `${f.left}%` }}
+          >
+            {f.emoji}
+          </span>
+        ))}
+      </div>
+
       {/* Header */}
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/5 px-4 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
@@ -299,33 +359,55 @@ export function MessageThread({
           >
             <ArrowLeft size={18} />
           </Link>
-          {isGroup ? (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
-              <Users size={18} />
-            </div>
-          ) : (
-            <Avatar name={title} image={otherUserImage} online={online} />
-          )}
+          <div className={`rounded-full ${peerHere ? "pm-glow" : ""}`}>
+            {isGroup ? (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+                <Users size={18} />
+              </div>
+            ) : (
+              <Avatar name={title} image={otherUserImage} online={online} />
+            )}
+          </div>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-white">{title}</div>
-            <div className="flex items-center gap-1.5 text-xs text-white/40">
+            <div className="flex items-center gap-1.5 text-xs">
               {isGroup ? (
-                <>
-                  <Users size={12} /> {memberCount} members
-                </>
+                groupHereCount > 0 ? (
+                  <span className="flex items-center gap-1.5 text-indigo-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 pm-pulse" />
+                    {groupHereCount} here now
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-white/40">
+                    <Users size={12} /> {memberCount} members
+                  </span>
+                )
+              ) : peerHere ? (
+                <span className="flex items-center gap-1.5 font-medium text-indigo-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 pm-pulse" />
+                  Here together now
+                </span>
               ) : (
-                <>
+                <span className="flex items-center gap-1.5 text-white/40">
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400" : "bg-white/30"}`}
                   />
                   {online ? "Active now" : "Offline"}
-                </>
+                </span>
               )}
             </div>
           </div>
         </div>
         {/* Call controls */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => sendReaction("💜")}
+            disabled={!connected}
+            title="Send a live pulse 💜"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-pink-500/40 hover:bg-pink-500/10 hover:text-pink-400 disabled:opacity-40"
+          >
+            <Heart size={17} />
+          </button>
           <button
             onClick={() => startCall(false)}
             disabled={!connected}

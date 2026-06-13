@@ -97,3 +97,22 @@ body {
 .pm-pulse {
   animation: pm-pulse 1.6s ease-in-out infinite;
 }
+
+/* Floating reaction: rise, drift, and fade out */
+@keyframes pm-float {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  15% { transform: translateY(-10px) scale(1.15); opacity: 1; }
+  100% { transform: translateY(-160px) scale(1); opacity: 0; }
+}
+.pm-float {
+  animation: pm-float 1.8s ease-out forwards;
+}
+
+/* Gentle glow ring for "both here" co-presence */
+@keyframes pm-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(99, 102, 241, 0); }
+}
+.pm-glow {
+  animation: pm-glow 2s ease-out infinite;
+}

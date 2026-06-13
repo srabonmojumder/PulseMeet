@@ -38,6 +38,20 @@ export interface ServerToClientEvents {
     text?: string;
   }) => void;
   "presence": (data: { userId: string; online: boolean }) => void;
+  /** Per-conversation co-presence: someone is actively viewing this chat right now. */
+  "convo:presence": (data: {
+    conversationId: string;
+    userId: string;
+    name: string;
+    active: boolean;
+  }) => void;
+  /** A synchronized floating reaction to animate on every member's screen. */
+  "reaction:fly": (data: {
+    conversationId: string;
+    userId: string;
+    name: string;
+    emoji: string;
+  }) => void;
   "call:incoming": (invite: CallInvite) => void;
   "error": (message: string) => void;
 }
@@ -50,6 +64,10 @@ export interface ClientToServerEvents {
     ack?: (res: { ok: boolean; error?: string; message?: MessageDTO }) => void,
   ) => void;
   "typing": (data: { conversationId: string; isTyping: boolean; text?: string }) => void;
+  /** Tell peers whether you are actively viewing this conversation. */
+  "convo:active": (data: { conversationId: string; active: boolean }) => void;
+  /** Broadcast a floating reaction to everyone in the conversation. */
+  "reaction:fly": (data: { conversationId: string; emoji: string }) => void;
   "call:invite": (data: { conversationId: string; withVideo: boolean }) => void;
 }
 

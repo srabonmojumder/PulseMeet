@@ -36,6 +36,20 @@ const sendSchema = z
 // userId -> count of live sockets (for presence).
 const presence = new Map<string, number>();
 
+// conversationId -> (userId -> name) actively viewing it right now (co-presence).
+const activeViewers = new Map<string, Map<string, string>>();
+
+function setActive(conversationId: string, userId: string, name: string, active: boolean) {
+  let map = activeViewers.get(conversationId);
+  if (!map) {
+    map = new Map();
+    activeViewers.set(conversationId, map);
+  }
+  if (active) map.set(userId, name);
+  else map.delete(userId);
+  if (map.size === 0) activeViewers.delete(conversationId);
+}
+
 async function isMember(userId: string, conversationId: string): Promise<boolean> {
   const member = await prisma.conversationMember.findUnique({
     where: { conversationId_userId: { conversationId, userId } },
@@ -73,6 +87,59 @@ export function attachRealtime(io: AppServer) {
     const prev = presence.get(userId) ?? 0;
     presence.set(userId, prev + 1);
     if (prev === 0) io.emit("presence", { userId, online: true });
+
+    // Conversations this socket is actively viewing (for co-presence cleanup).
+    const activeConvos = new Set<string>();
+
+    socket.on("convo:active", async ({ conversationId, active }) => {
+      if (typeof conversationId !== "string") return;
+      if (active && !(await isMember(userId, conversationId))) return;
+
+      if (active) {
+        // Tell me who's already here (before adding myself).
+        const here = activeViewers.get(conversationId);
+        if (here) {
+          for (const [otherId, otherName] of here) {
+            if (otherId === userId) continue;
+            socket.emit("convo:presence", {
+              conversationId,
+              userId: otherId,
+              name: otherName,
+              active: true,
+            });
+          }
+        }
+        activeConvos.add(conversationId);
+        setActive(conversationId, userId, name, true);
+        // …and tell the room I'm here.
+        socket.to(roomFor(conversationId)).emit("convo:presence", {
+          conversationId,
+          userId,
+          name,
+          active: true,
+        });
+      } else {
+        activeConvos.delete(conversationId);
+        setActive(conversationId, userId, name, false);
+        socket.to(roomFor(conversationId)).emit("convo:presence", {
+          conversationId,
+          userId,
+          name,
+          active: false,
+        });
+      }
+    });
+
+    socket.on("reaction:fly", async ({ conversationId, emoji }) => {
+      if (typeof conversationId !== "string" || typeof emoji !== "string") return;
+      if (!(await isMember(userId, conversationId))) return;
+      socket.to(roomFor(conversationId)).emit("reaction:fly", {
+        conversationId,
+        userId,
+        name,
+        emoji: emoji.slice(0, 8),
+      });
+    });
 
     socket.on("conversation:join", async (conversationId) => {
       if (typeof conversationId !== "string") return;
@@ -166,6 +233,18 @@ export function attachRealtime(io: AppServer) {
     });
 
     socket.on("disconnect", () => {
+      // Clear active co-presence for any conversations this socket was viewing.
+      for (const conversationId of activeConvos) {
+        setActive(conversationId, userId, name, false);
+        socket.to(roomFor(conversationId)).emit("convo:presence", {
+          conversationId,
+          userId,
+          name,
+          active: false,
+        });
+      }
+      activeConvos.clear();
+
       const count = (presence.get(userId) ?? 1) - 1;
       if (count <= 0) {
         presence.delete(userId);
