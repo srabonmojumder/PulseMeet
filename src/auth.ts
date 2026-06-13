@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { headers } from "next/headers";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -44,6 +45,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    // Auth.js v5 doesn't reliably derive the origin behind a custom server and
+    // falls back to localhost, which breaks logins from other devices (a
+    // phone's "localhost" is the phone). Rebuild the redirect target from the
+    // ACTUAL request host so it always stays on the origin the client used.
+    async redirect({ url, baseUrl }) {
+      let realBase = baseUrl;
+      try {
+        const h = await headers();
+        const host = h.get("x-forwarded-host") ?? h.get("host");
+        const proto = h.get("x-forwarded-proto") ?? "http";
+        if (host) realBase = `${proto}://${host}`;
+      } catch {
+        // headers() unavailable outside a request scope — fall back to baseUrl.
+      }
+      try {
+        const target = new URL(url, realBase);
+        // Only allow same-origin redirects; otherwise send home.
+        if (target.origin === realBase) return target.toString();
+      } catch {
+        // ignore malformed url
+      }
+      return realBase;
+    },
     jwt({ token, user }) {
       if (user) token.id = user.id as string;
       return token;

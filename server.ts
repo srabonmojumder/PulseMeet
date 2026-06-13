@@ -9,14 +9,27 @@ import type {
 } from "@/lib/realtime-events";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = process.env.HOSTNAME || "localhost";
 const port = parseInt(process.env.PORT || "3000", 10);
 
-const app = next({ dev, hostname, port });
+// Note: we deliberately do NOT pass a fixed `hostname` to next(). Hardcoding
+// "localhost" makes Auth.js treat localhost as the base URL, so post-login
+// redirects point at localhost — which breaks login from other devices (a
+// phone's "localhost" is the phone itself). Letting Next use the real request
+// host (with AUTH_TRUST_HOST=true) keeps redirects on the correct origin.
+const app = next({ dev });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
+    // Behind this custom server there's no reverse proxy, so Auth.js (with
+    // trustHost) can't derive the origin and falls back to localhost — which
+    // breaks logins from other devices. Forward the real host/proto so the
+    // post-login redirect stays on the origin the client actually used.
+    if (req.headers.host && !req.headers["x-forwarded-host"]) {
+      req.headers["x-forwarded-host"] = req.headers.host;
+      req.headers["x-forwarded-proto"] =
+        (req.socket as { encrypted?: boolean }).encrypted ? "https" : "http";
+    }
     handle(req, res);
   });
 
@@ -37,6 +50,6 @@ app.prepare().then(() => {
   attachRealtime(io);
 
   httpServer.listen(port, () => {
-    console.log(`> PulseMeet ready on http://${hostname}:${port}  (dev=${dev})`);
+    console.log(`> PulseMeet ready on http://localhost:${port}  (dev=${dev})`);
   });
 });
