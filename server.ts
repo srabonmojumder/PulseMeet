@@ -25,8 +25,13 @@ app.prepare().then(() => {
     // trustHost) can't derive the origin and falls back to localhost — which
     // breaks logins from other devices. Forward the real host/proto so the
     // post-login redirect stays on the origin the client actually used.
+    // Fill in only the forwarding headers the upstream proxy didn't set — never
+    // clobber a proxy-provided x-forwarded-proto (Render sets it to https; the
+    // raw socket here is plain http, so overwriting it broke secure cookies).
     if (req.headers.host && !req.headers["x-forwarded-host"]) {
       req.headers["x-forwarded-host"] = req.headers.host;
+    }
+    if (!req.headers["x-forwarded-proto"]) {
       req.headers["x-forwarded-proto"] =
         (req.socket as { encrypted?: boolean }).encrypted ? "https" : "http";
     }
