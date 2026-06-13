@@ -276,7 +276,10 @@ export function MessageThread({
                     )}
                   </div>
                 )}
-                <div className={`mt-1 text-right text-[10px] ${mine ? "text-white/70" : "text-white/35"}`}>
+                <div
+                  suppressHydrationWarning
+                  className={`mt-1 text-right text-[10px] ${mine ? "text-white/70" : "text-white/35"}`}
+                >
                   {formatTime(m.createdAt)}
                 </div>
               </div>
