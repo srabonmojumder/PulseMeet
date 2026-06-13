@@ -19,12 +19,16 @@ Built with **Next.js 16 (App Router) · TypeScript · Tailwind · Prisma/SQLite 
 - 🔔 **Incoming-call invites** delivered live over the socket, with a Join/Dismiss banner shown anywhere in the app
 - Membership-checked LiveKit access tokens; room name = conversation id
 
+### File sharing ✅
+- 📎 **Attach files** to any message (up to 10, 25 MB each)
+- 🖼️ **Inline image previews**; other files render as downloadable chips
+- Uploads stored under `public/uploads/` in dev (swap for S3/R2 in prod)
+
 ### Planned next (incremental)
 
-1. File sharing (uploads + attachments)
-2. Group conversations / team channels
-3. Read receipts, notifications, message history pagination
-4. Deploy + installable (desktop/mobile) packaging
+1. Group conversations / team channels
+2. Read receipts, notifications, message history pagination
+3. Deploy + installable (desktop/mobile) packaging
 
 ## Architecture
 

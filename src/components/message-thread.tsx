@@ -3,7 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useRealtime } from "@/components/realtime-provider";
-import type { MessageDTO } from "@/lib/realtime-events";
+import type { AttachmentDTO, MessageDTO } from "@/lib/realtime-events";
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImage(contentType: string) {
+  return contentType.startsWith("image/");
+}
 
 function initials(name: string) {
   return name
@@ -35,7 +45,10 @@ export function MessageThread({
   const router = useRouter();
   const [messages, setMessages] = useState<MessageDTO[]>(initialMessages);
   const [input, setInput] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [peerTyping, setPeerTyping] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
@@ -107,15 +120,46 @@ export function MessageThread({
     router.push(`/call/${conversationId}${withVideo ? "" : "?video=0"}`);
   }
 
-  function send(e: React.FormEvent) {
+  async function uploadAll(files: File[]): Promise<AttachmentDTO[]> {
+    const out: AttachmentDTO[] = [];
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `Failed to upload ${file.name}`);
+      }
+      out.push(await res.json());
+    }
+    return out;
+  }
+
+  async function send(e: React.FormEvent) {
     e.preventDefault();
     const content = input.trim();
-    if (!content || !socket) return;
-    socket.emit("message:send", { conversationId, content });
+    if ((!content && pendingFiles.length === 0) || !socket || uploading) return;
+
+    let attachments: AttachmentDTO[] = [];
+    if (pendingFiles.length > 0) {
+      setUploading(true);
+      try {
+        attachments = await uploadAll(pendingFiles);
+      } catch (err) {
+        setUploading(false);
+        alert(err instanceof Error ? err.message : "Upload failed");
+        return;
+      }
+      setUploading(false);
+    }
+
+    socket.emit("message:send", { conversationId, content, attachments });
     socket.emit("typing", { conversationId, isTyping: false });
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
     lastTypingSent.current = 0;
     setInput("");
+    setPendingFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   return (
@@ -177,7 +221,44 @@ export function MessageThread({
                     {m.sender.name}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap break-words text-sm">{m.content}</div>
+                {m.content && (
+                  <div className="whitespace-pre-wrap break-words text-sm">{m.content}</div>
+                )}
+                {m.attachments.length > 0 && (
+                  <div className="mt-1 space-y-2">
+                    {m.attachments.map((a) =>
+                      isImage(a.contentType) ? (
+                        <a key={a.url} href={a.url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={a.url}
+                            alt={a.name}
+                            className="max-h-60 rounded-lg border border-black/10"
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          key={a.url}
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          download={a.name}
+                          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                            mine ? "bg-indigo-500/40" : "bg-slate-700/60"
+                          }`}
+                        >
+                          <span className="text-lg">📎</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{a.name}</span>
+                            <span className="block text-[10px] opacity-70">
+                              {formatBytes(a.size)}
+                            </span>
+                          </span>
+                        </a>
+                      ),
+                    )}
+                  </div>
+                )}
                 <div
                   className={`mt-1 text-[10px] ${mine ? "text-indigo-200" : "text-slate-500"}`}
                 >
@@ -196,22 +277,63 @@ export function MessageThread({
       {/* Composer */}
       <form
         onSubmit={send}
-        className="flex shrink-0 items-center gap-2 border-t border-slate-800 bg-slate-900 px-4 py-3"
+        className="shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3"
       >
-        <input
-          value={input}
-          onChange={(e) => handleInputChange(e.target.value)}
-          placeholder={connected ? "Type a message…" : "Connecting…"}
-          disabled={!connected}
-          className="flex-1 rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-white outline-none focus:border-indigo-500 disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          disabled={!connected || !input.trim()}
-          className="rounded-full bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
-        >
-          Send
-        </button>
+        {pendingFiles.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {pendingFiles.map((f, i) => (
+              <span
+                key={`${f.name}-${i}`}
+                className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-200"
+              >
+                📎 <span className="max-w-40 truncate">{f.name}</span>
+                <span className="opacity-60">{formatBytes(f.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingFiles((p) => p.filter((_, j) => j !== i))}
+                  className="text-slate-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) setPendingFiles((p) => [...p, ...files].slice(0, 10));
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!connected}
+            title="Attach files"
+            className="rounded-full border border-slate-700 px-3 py-2 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+          >
+            📎
+          </button>
+          <input
+            value={input}
+            onChange={(e) => handleInputChange(e.target.value)}
+            placeholder={connected ? "Type a message…" : "Connecting…"}
+            disabled={!connected}
+            className="flex-1 rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-white outline-none focus:border-indigo-500 disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={!connected || uploading || (!input.trim() && pendingFiles.length === 0)}
+            className="rounded-full bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {uploading ? "Sending…" : "Send"}
+          </button>
+        </div>
       </form>
     </div>
   );

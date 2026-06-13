@@ -79,7 +79,9 @@ export function Sidebar({
                 <div className="truncate text-sm font-medium text-white">{title}</div>
                 <div className="truncate text-xs text-slate-500">
                   {c.lastMessage
-                    ? `${c.lastMessage.senderId === currentUserId ? "You: " : ""}${c.lastMessage.content}`
+                    ? `${c.lastMessage.senderId === currentUserId ? "You: " : ""}${
+                        c.lastMessage.content || "📎 Attachment"
+                      }`
                     : "No messages yet"}
                 </div>
               </div>

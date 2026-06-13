@@ -15,10 +15,23 @@ type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<strin
 const roomFor = (conversationId: string) => `conv:${conversationId}`;
 const userRoom = (userId: string) => `user:${userId}`;
 
-const sendSchema = z.object({
-  conversationId: z.string().min(1),
-  content: z.string().trim().min(1).max(4000),
+const attachmentSchema = z.object({
+  url: z.string().min(1).max(1024),
+  name: z.string().min(1).max(255),
+  contentType: z.string().max(255),
+  size: z.number().int().nonnegative(),
 });
+
+const sendSchema = z
+  .object({
+    conversationId: z.string().min(1),
+    content: z.string().trim().max(4000),
+    attachments: z.array(attachmentSchema).max(10).optional(),
+  })
+  // A message must carry text, attachments, or both.
+  .refine((d) => d.content.length > 0 || (d.attachments?.length ?? 0) > 0, {
+    message: "Empty message",
+  });
 
 // userId -> count of live sockets (for presence).
 const presence = new Map<string, number>();
@@ -80,7 +93,7 @@ export function attachRealtime(io: AppServer) {
         ack?.({ ok: false, error: "Invalid message" });
         return;
       }
-      const { conversationId, content } = parsed.data;
+      const { conversationId, content, attachments } = parsed.data;
 
       if (!(await isMember(userId, conversationId))) {
         ack?.({ ok: false, error: "Not a member of this conversation" });
@@ -88,8 +101,20 @@ export function attachRealtime(io: AppServer) {
       }
 
       const created = await prisma.message.create({
-        data: { conversationId, senderId: userId, content },
-        include: { sender: { select: { id: true, name: true, image: true } } },
+        data: {
+          conversationId,
+          senderId: userId,
+          content,
+          attachments: attachments?.length
+            ? { create: attachments }
+            : undefined,
+        },
+        include: {
+          sender: { select: { id: true, name: true, image: true } },
+          attachments: {
+            select: { url: true, name: true, contentType: true, size: true },
+          },
+        },
       });
       await prisma.conversation.update({
         where: { id: conversationId },
@@ -102,6 +127,7 @@ export function attachRealtime(io: AppServer) {
         content: created.content,
         createdAt: created.createdAt.toISOString(),
         sender: created.sender,
+        attachments: created.attachments,
       };
 
       io.to(roomFor(conversationId)).emit("message:new", dto);

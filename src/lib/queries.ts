@@ -63,7 +63,12 @@ export async function getConversationForUser(conversationId: string, userId: str
     where: { conversationId },
     orderBy: { createdAt: "asc" },
     take: 100,
-    include: { sender: { select: { id: true, name: true, image: true } } },
+    include: {
+      sender: { select: { id: true, name: true, image: true } },
+      attachments: {
+        select: { url: true, name: true, contentType: true, size: true },
+      },
+    },
   });
 
   const otherUser = conversation.members.find((m) => m.userId !== userId)?.user ?? null;
@@ -79,6 +84,7 @@ export async function getConversationForUser(conversationId: string, userId: str
       content: m.content,
       createdAt: m.createdAt.toISOString(),
       sender: m.sender,
+      attachments: m.attachments,
     })),
   };
 }
