@@ -136,7 +136,7 @@ function IncomingCallBanner({
   const CallIcon = invite.withVideo ? Video : Phone;
 
   return (
-    <div className="glass pm-rise fixed bottom-6 right-6 z-[100] w-80 rounded-2xl p-4 shadow-2xl shadow-black/50">
+    <div className="pm-rise fixed bottom-6 right-6 z-[100] w-80 rounded-2xl border border-white/10 bg-[#15151f] p-4 shadow-2xl shadow-black/60">
       <div className="mb-3 flex items-center gap-3">
         <div className="brand-gradient flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-indigo-500/30">
           <CallIcon size={22} className="pm-pulse" />

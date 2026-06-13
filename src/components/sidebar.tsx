@@ -122,7 +122,7 @@ function NewChatModal({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="glass pm-rise w-full max-w-md rounded-2xl p-5 shadow-2xl"
+        className="pm-rise w-full max-w-md rounded-2xl border border-white/10 bg-[#15151f] p-5 shadow-2xl shadow-black/60"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">

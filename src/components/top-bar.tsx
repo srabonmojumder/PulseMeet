@@ -33,7 +33,7 @@ export function TopBar({
   }, []);
 
   return (
-    <header className="glass flex h-16 shrink-0 items-center justify-between px-4 sm:px-5">
+    <header className="glass relative z-50 flex h-16 shrink-0 items-center justify-between px-4 sm:px-5">
       <div className="flex items-center gap-3">
         <Link href="/chat">
           <Logo size="sm" />
@@ -66,7 +66,7 @@ export function TopBar({
           </button>
 
           {open && (
-            <div className="glass pm-rise absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl p-1.5 shadow-2xl">
+            <div className="pm-rise absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15151f] p-1.5 shadow-2xl shadow-black/60">
               <div className="flex items-center gap-3 px-2.5 py-2">
                 <Avatar name={name} image={image} size="md" />
                 <div className="min-w-0">
