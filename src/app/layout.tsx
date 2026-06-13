@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { PwaRegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,6 +17,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "PulseMeet",
   description: "Team chat & video meetings — real-time messaging, calls, and screen sharing.",
+  appleWebApp: { capable: true, title: "PulseMeet", statusBarStyle: "black-translucent" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#4338ca",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -30,6 +40,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-slate-950 text-slate-100">
         <Providers>{children}</Providers>
+        <PwaRegister />
       </body>
     </html>
   );

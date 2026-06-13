@@ -59,10 +59,14 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       const token = await fetchToken();
       if (!active || !token) return;
 
-      socket = io({
+      // Same-origin in local/single-host setups; point at a dedicated realtime
+      // host (e.g. Railway/Render) in serverless deploys via NEXT_PUBLIC_SOCKET_URL.
+      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || undefined;
+      socket = io(socketUrl, {
         auth: { token },
         // Refresh the auth token on every (re)connection attempt.
         transports: ["websocket", "polling"],
+        withCredentials: true,
       });
       socketRef.current = socket;
 

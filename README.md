@@ -24,11 +24,21 @@ Built with **Next.js 16 (App Router) · TypeScript · Tailwind · Prisma/SQLite 
 - 🖼️ **Inline image previews**; other files render as downloadable chips
 - Uploads stored under `public/uploads/` in dev (swap for S3/R2 in prod)
 
+### Installable (PWA) ✅
+- 📱 **Install to home screen / desktop** — web app manifest + icons
+- 🔌 **Offline-aware** — service worker with an offline fallback page
+- API, socket, and upload requests are never cached
+
+### Deploy ➡️ see [DEPLOY.md](DEPLOY.md)
+Vercel (web) + a separate realtime host (Socket.io) + LiveKit Cloud (media) +
+Postgres + Blob storage. The realtime server runs standalone via
+[realtime-server.ts](realtime-server.ts) (`pnpm realtime`), and the browser
+points at it through `NEXT_PUBLIC_SOCKET_URL`.
+
 ### Planned next (incremental)
 
 1. Group conversations / team channels
 2. Read receipts, notifications, message history pagination
-3. Deploy + installable (desktop/mobile) packaging
 
 ## Architecture
 
