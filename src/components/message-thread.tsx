@@ -127,7 +127,9 @@ export function MessageThread({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastTypingSent = useRef(0);
+  const emitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftRef = useRef("");
+  const [livePreview, setLivePreview] = useState<{ name: string; text: string } | null>(null);
 
   const online = otherUserId ? onlineUsers.has(otherUserId) : false;
 
@@ -135,6 +137,7 @@ export function MessageThread({
   useEffect(() => {
     setMessages(initialMessages);
     setPeerTyping(null);
+    setLivePreview(null);
   }, [conversationId, initialMessages]);
 
   // Join the conversation room and subscribe to events.
@@ -146,6 +149,8 @@ export function MessageThread({
     const onMessage = (msg: MessageDTO) => {
       if (msg.conversationId !== conversationId) return;
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      // A real message clears that sender's live preview.
+      setLivePreview((p) => (p && p.name === msg.sender.name ? null : p));
       // Notify on incoming messages from others when the tab isn't focused.
       if (msg.sender.id !== currentUserId && typeof document !== "undefined" && document.hidden) {
         playBeep();
@@ -158,9 +163,16 @@ export function MessageThread({
       userId: string;
       name: string;
       isTyping: boolean;
+      text?: string;
     }) => {
       if (data.conversationId !== conversationId || data.userId === currentUserId) return;
       setPeerTyping(data.isTyping ? data.name : null);
+      // Live typing: show the peer's draft in real time.
+      if (data.isTyping && data.text && data.text.trim().length > 0) {
+        setLivePreview({ name: data.name, text: data.text });
+      } else {
+        setLivePreview(null);
+      }
     };
 
     socket.on("message:new", onMessage);
@@ -173,10 +185,10 @@ export function MessageThread({
     };
   }, [socket, connected, conversationId, currentUserId]);
 
-  // Auto-scroll to the newest message.
+  // Auto-scroll to the newest message (and as the live preview grows).
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, peerTyping]);
+  }, [messages, peerTyping, livePreview]);
 
   // Restore the document title when the tab regains focus.
   useEffect(() => {
@@ -198,19 +210,33 @@ export function MessageThread({
     ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
   }, [input]);
 
-  function handleInputChange(value: string) {
-    setInput(value);
-    if (!socket) return;
-    const now = Date.now();
-    if (now - lastTypingSent.current > 1500) {
-      socket.emit("typing", { conversationId, isTyping: true });
-      lastTypingSent.current = now;
+  function stopTyping() {
+    if (emitTimer.current) {
+      clearTimeout(emitTimer.current);
+      emitTimer.current = null;
     }
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => {
-      socket.emit("typing", { conversationId, isTyping: false });
-      lastTypingSent.current = 0;
-    }, 1800);
+    socket?.emit("typing", { conversationId, isTyping: false });
+  }
+
+  // Live typing: stream the draft text to peers (throttled ~160ms) so they see
+  // the message form in real time — not just a "typing…" dot.
+  function handleInputChange(value: string) {
+    setInput(value);
+    draftRef.current = value;
+    if (!socket) return;
+
+    if (!emitTimer.current) {
+      socket.emit("typing", { conversationId, isTyping: true, text: value });
+      emitTimer.current = setTimeout(() => {
+        emitTimer.current = null;
+        socket?.emit("typing", { conversationId, isTyping: true, text: draftRef.current });
+      }, 160);
+    }
+
+    // Stop broadcasting shortly after they pause.
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(stopTyping, 3000);
   }
 
   function startCall(withVideo: boolean) {
@@ -253,9 +279,8 @@ export function MessageThread({
     }
 
     socket.emit("message:send", { conversationId, content, attachments });
-    socket.emit("typing", { conversationId, isTyping: false });
-    if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    lastTypingSent.current = 0;
+    stopTyping();
+    draftRef.current = "";
     setInput("");
     setPendingFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -408,7 +433,21 @@ export function MessageThread({
             </div>
           );
         })}
-        {peerTyping && (
+        {/* PulseMeet Live Typing — see the peer's draft in real time */}
+        {livePreview ? (
+          <div className="flex justify-start pt-3">
+            <div className="max-w-[78%] rounded-2xl rounded-bl-md border border-dashed border-indigo-400/50 bg-indigo-500/[0.07] px-4 py-2 text-sm sm:max-w-[68%]">
+              <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 pm-pulse" />
+                {livePreview.name} · typing live
+              </div>
+              <div className="whitespace-pre-wrap break-words text-white/80">
+                {renderText(livePreview.text)}
+                <span className="ml-0.5 inline-block h-3.5 w-px bg-indigo-300 pm-pulse align-middle" />
+              </div>
+            </div>
+          </div>
+        ) : peerTyping ? (
           <div className="flex items-center gap-1.5 pt-2 text-xs text-white/40">
             <span className="flex gap-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-white/40 pm-pulse" style={{ animationDelay: "0ms" }} />
@@ -417,7 +456,7 @@ export function MessageThread({
             </span>
             {peerTyping} is typing…
           </div>
-        )}
+        ) : null}
         <div ref={bottomRef} />
       </div>
 

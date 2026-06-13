@@ -29,7 +29,14 @@ export interface CallInvite {
 
 export interface ServerToClientEvents {
   "message:new": (message: MessageDTO) => void;
-  "typing": (data: { conversationId: string; userId: string; name: string; isTyping: boolean }) => void;
+  "typing": (data: {
+    conversationId: string;
+    userId: string;
+    name: string;
+    isTyping: boolean;
+    /** Live draft text — what the peer is typing right now (PulseMeet live typing). */
+    text?: string;
+  }) => void;
   "presence": (data: { userId: string; online: boolean }) => void;
   "call:incoming": (invite: CallInvite) => void;
   "error": (message: string) => void;
@@ -42,7 +49,7 @@ export interface ClientToServerEvents {
     data: { conversationId: string; content: string; attachments?: AttachmentDTO[] },
     ack?: (res: { ok: boolean; error?: string; message?: MessageDTO }) => void,
   ) => void;
-  "typing": (data: { conversationId: string; isTyping: boolean }) => void;
+  "typing": (data: { conversationId: string; isTyping: boolean; text?: string }) => void;
   "call:invite": (data: { conversationId: string; withVideo: boolean }) => void;
 }
 

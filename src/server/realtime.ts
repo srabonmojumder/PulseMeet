@@ -151,11 +151,18 @@ export function attachRealtime(io: AppServer) {
       }
     });
 
-    socket.on("typing", ({ conversationId, isTyping }) => {
+    socket.on("typing", ({ conversationId, isTyping, text }) => {
       if (typeof conversationId !== "string") return;
-      socket
-        .to(roomFor(conversationId))
-        .emit("typing", { conversationId, userId, name, isTyping: Boolean(isTyping) });
+      // Relay the live draft text (capped) so peers see typing in real time.
+      const draft =
+        typeof text === "string" ? text.slice(0, 500) : undefined;
+      socket.to(roomFor(conversationId)).emit("typing", {
+        conversationId,
+        userId,
+        name,
+        isTyping: Boolean(isTyping),
+        text: draft,
+      });
     });
 
     socket.on("disconnect", () => {
