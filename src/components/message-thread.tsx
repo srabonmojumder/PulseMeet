@@ -15,6 +15,7 @@ import {
   MessageCircle,
   Loader2,
   Users,
+  Smile,
 } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
@@ -32,6 +33,67 @@ function isImage(contentType: string) {
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// Day label for date separators ("Today" / "Yesterday" / full date).
+function dayLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yest = new Date();
+  yest.setDate(today.getDate() - 1);
+  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (same(d, today)) return "Today";
+  if (same(d, yest)) return "Yesterday";
+  return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+}
+
+const QUICK_EMOJI = [
+  "😀", "😂", "🥰", "😍", "😎", "🤔", "😅", "😭",
+  "👍", "🙏", "👏", "🔥", "🎉", "❤️", "💯", "✅",
+  "😡", "😱", "🤝", "👀", "😴", "🥳", "💔", "🚀",
+];
+
+// Render message text with clickable links.
+function renderText(text: string) {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noreferrer"
+        className="underline decoration-white/40 underline-offset-2 hover:decoration-white"
+      >
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
+// Soft notification beep via Web Audio (no asset needed).
+function playBeep() {
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 660;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.26);
+    osc.onended = () => ctx.close();
+  } catch {
+    // ignore (autoplay may be blocked until first interaction)
+  }
 }
 
 export function MessageThread({
@@ -60,7 +122,9 @@ export function MessageThread({
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [peerTyping, setPeerTyping] = useState<string | null>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
@@ -82,6 +146,11 @@ export function MessageThread({
     const onMessage = (msg: MessageDTO) => {
       if (msg.conversationId !== conversationId) return;
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      // Notify on incoming messages from others when the tab isn't focused.
+      if (msg.sender.id !== currentUserId && typeof document !== "undefined" && document.hidden) {
+        playBeep();
+        document.title = `💬 ${msg.sender.name} — PulseMeet`;
+      }
     };
 
     const onTyping = (data: {
@@ -108,6 +177,26 @@ export function MessageThread({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, peerTyping]);
+
+  // Restore the document title when the tab regains focus.
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden) document.title = "PulseMeet";
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      document.title = "PulseMeet";
+    };
+  }, []);
+
+  // Auto-grow the composer textarea.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
+  }, [input]);
 
   function handleInputChange(value: string) {
     setInput(value);
@@ -145,7 +234,7 @@ export function MessageThread({
     return out;
   }
 
-  async function send(e: React.FormEvent) {
+  async function send(e: React.SyntheticEvent) {
     e.preventDefault();
     const content = input.trim();
     if ((!content && pendingFiles.length === 0) || !socket || uploading) return;
@@ -242,12 +331,23 @@ export function MessageThread({
         {messages.map((m, i) => {
           const mine = m.sender.id === currentUserId;
           const prev = messages[i - 1];
-          const grouped = prev && prev.sender.id === m.sender.id;
+          const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
+          const grouped = prev && prev.sender.id === m.sender.id && !showDay;
           return (
-            <div
-              key={m.id}
-              className={`flex ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-3"}`}
-            >
+            <div key={m.id}>
+              {showDay && (
+                <div className="my-3 flex justify-center">
+                  <span
+                    suppressHydrationWarning
+                    className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-white/40"
+                  >
+                    {dayLabel(m.createdAt)}
+                  </span>
+                </div>
+              )}
+              <div
+                className={`flex ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-3"}`}
+              >
               <div
                 className={`max-w-[78%] px-4 py-2 text-sm shadow-sm sm:max-w-[68%] ${
                   mine
@@ -261,7 +361,7 @@ export function MessageThread({
                   </div>
                 )}
                 {m.content && (
-                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                  <div className="whitespace-pre-wrap break-words">{renderText(m.content)}</div>
                 )}
                 {m.attachments.length > 0 && (
                   <div className="mt-1.5 space-y-1.5">
@@ -305,6 +405,7 @@ export function MessageThread({
                 </div>
               </div>
             </div>
+            </div>
           );
         })}
         {peerTyping && (
@@ -343,7 +444,7 @@ export function MessageThread({
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -363,12 +464,54 @@ export function MessageThread({
           >
             <Paperclip size={19} />
           </button>
-          <input
+
+          {/* Emoji picker */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowEmoji((s) => !s)}
+              disabled={!connected}
+              title="Emoji"
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-white/60 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
+            >
+              <Smile size={19} />
+            </button>
+            {showEmoji && (
+              <div
+                className="pm-rise absolute bottom-12 left-0 z-50 grid w-64 grid-cols-8 gap-1 rounded-2xl border border-white/10 bg-[#15151f] p-2 shadow-2xl"
+                onMouseLeave={() => setShowEmoji(false)}
+              >
+                {QUICK_EMOJI.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => {
+                      setInput((v) => v + e);
+                      textareaRef.current?.focus();
+                    }}
+                    className="rounded-lg p-1 text-xl transition hover:bg-white/10"
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <textarea
+            ref={textareaRef}
             value={input}
+            rows={1}
             onChange={(e) => handleInputChange(e.target.value)}
-            placeholder={connected ? "Type a message…" : "Connecting…"}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send(e);
+              }
+            }}
+            placeholder={connected ? "Type a message…  (Enter to send, Shift+Enter for new line)" : "Connecting…"}
             disabled={!connected}
-            className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-indigo-500/60 focus:bg-white/[0.07] disabled:opacity-50"
+            className="max-h-36 flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-indigo-500/60 focus:bg-white/[0.07] disabled:opacity-50"
           />
           <button
             type="submit"
