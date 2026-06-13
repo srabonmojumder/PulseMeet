@@ -1,0 +1,30 @@
+# Render blueprint — deploys PulseMeet (Next.js + Socket.io in one service).
+# Create the service via https://dashboard.render.com → New → Blueprint, point
+# it at this repo. Set the `sync: false` secrets in the Render dashboard.
+services:
+  - type: web
+    name: pulsemeet
+    runtime: node
+    plan: free
+    # db push keeps the Neon schema in sync; build compiles Next.
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm prisma db push && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: AUTH_SECRET
+        generateValue: true # Render generates a strong secret
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      # --- set these in the Render dashboard (Environment tab) ---
+      - key: DATABASE_URL # Neon connection string (postgresql://…)
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_LIVEKIT_URL # wss://your-project.livekit.cloud
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL # https://pulsemeet.onrender.com (after first deploy)
+        sync: false
