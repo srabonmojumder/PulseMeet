@@ -16,10 +16,13 @@ export function ChatShell({
 
   return (
     <>
-      {/* On >= sm use `contents` so the sidebar <aside> becomes a direct flex
-          child of the layout row and stretches to full height (matching the
-          main pane). On mobile it's a normal full-width block. */}
-      <div className={`${threadOpen ? "hidden" : "flex w-full"} sm:contents`}>
+      {/* Wrapper is a flex container that fills the row's height, so the sidebar
+          <aside> inside stretches to full height (matching the main pane). */}
+      <div
+        className={`min-h-0 w-full sm:w-80 sm:shrink-0 ${
+          threadOpen ? "hidden sm:flex" : "flex"
+        }`}
+      >
         {sidebar}
       </div>
       <main

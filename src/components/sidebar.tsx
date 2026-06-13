@@ -49,7 +49,7 @@ export function Sidebar({
   });
 
   return (
-    <aside className="glass flex w-full shrink-0 flex-col overflow-hidden sm:w-80 sm:rounded-2xl">
+    <aside className="glass flex h-full w-full min-h-0 flex-col overflow-hidden sm:rounded-2xl">
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <h2 className="text-sm font-semibold text-white">Messages</h2>
         <button
