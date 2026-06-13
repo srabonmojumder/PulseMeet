@@ -15,18 +15,7 @@ function svg(size: number, pad: number) {
   const r = Math.round(size * 0.22);
   const inset = Math.round(size * pad);
   const tile = size - inset * 2;
-  // pulse path points (relative to tile), then offset by inset
-  const pts = [
-    [0.18, 0.52],
-    [0.38, 0.52],
-    [0.46, 0.72],
-    [0.58, 0.28],
-    [0.66, 0.52],
-    [0.82, 0.52],
-  ];
-  const d = pts
-    .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${inset + x * tile} ${inset + y * tile}`)
-    .join(" ");
+  const fontSize = Math.round(tile * 0.6);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
@@ -35,8 +24,9 @@ function svg(size: number, pad: number) {
     </linearGradient>
   </defs>
   <rect width="${size}" height="${size}" rx="${r}" fill="url(#g)"/>
-  <path d="${d}" fill="none" stroke="#ffffff" stroke-width="${Math.round(tile * 0.07)}"
-    stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="50%" y="50%" dy="0.345em" text-anchor="middle"
+    font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="${fontSize}"
+    fill="#ffffff">P</text>
 </svg>`;
 }
 
