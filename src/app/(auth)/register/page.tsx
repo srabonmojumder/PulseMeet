@@ -54,7 +54,19 @@ export default function RegisterPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field icon={<User size={18} />} type="text" required value={name} onChange={setName} placeholder="Your name" />
-        <Field icon={<Mail size={18} />} type="email" required value={email} onChange={setEmail} placeholder="you@example.com" />
+        <Field
+          icon={<Mail size={18} />}
+          type="email"
+          required
+          value={email}
+          onChange={setEmail}
+          placeholder="you@example.com"
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete="email"
+          spellCheck={false}
+          inputMode="email"
+        />
         <Field
           icon={<Lock size={18} />}
           type={showPw ? "text" : "password"}

@@ -58,6 +58,11 @@ function LoginForm() {
           value={email}
           onChange={setEmail}
           placeholder="you@example.com"
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete="email"
+          spellCheck={false}
+          inputMode="email"
         />
         <Field
           icon={<Lock size={18} />}

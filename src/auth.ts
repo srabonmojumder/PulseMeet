@@ -24,7 +24,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
-        const user = await prisma.user.findUnique({ where: { email } });
+        // Normalize: mobile keyboards often auto-capitalize the first letter,
+        // and emails are stored lowercased at registration.
+        const user = await prisma.user.findUnique({
+          where: { email: email.toLowerCase().trim() },
+        });
         if (!user) return null;
 
         const valid = await bcrypt.compare(password, user.passwordHash);
