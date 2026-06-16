@@ -25,6 +25,7 @@ model User {
 
   memberships ConversationMember[]
   messages    Message[]
+  reactions   Reaction[]
 
   @@index([email])
 }
@@ -61,11 +62,35 @@ model Message {
   senderId       String
   content        String
   createdAt      DateTime     @default(now())
+  editedAt       DateTime? // set when the sender edits the text
+  deletedAt      DateTime? // soft delete — row stays so replies/threads don't break
+  replyToId      String? // quoted message this one replies to
+  expiresAt      DateTime? // disappearing messages: hidden + swept once past
+  scheduledFor   DateTime? // future-dated send; not delivered to others until due
+  deliveredAt    DateTime? // when a scheduled message was actually released
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
   attachments    Attachment[]
+  reactions      Reaction[]
+  replyTo        Message?     @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]    @relation("MessageReplies")
 
   @@index([conversationId, createdAt])
+  @@index([scheduledFor])
+  @@index([expiresAt])
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
 }
 
 model Attachment {

@@ -22,6 +22,7 @@ export default async function ConversationPage({
 
   return (
     <MessageThread
+      key={conversation.id}
       conversationId={conversation.id}
       title={title}
       isGroup={isGroup}
@@ -30,6 +31,7 @@ export default async function ConversationPage({
       otherUserImage={conversation.otherUser?.image ?? null}
       currentUserId={userId}
       initialMessages={conversation.messages}
+      initialReads={conversation.memberReads}
     />
   );
 }

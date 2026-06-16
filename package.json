@@ -30,6 +30,7 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.2",
     "@livekit/components-react": "^2.9.21",
     "@livekit/components-styles": "^1.2.0",
     "@prisma/client": "^6.19.3",

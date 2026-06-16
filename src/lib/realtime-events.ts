@@ -8,6 +8,20 @@ export interface AttachmentDTO {
   size: number;
 }
 
+export interface ReactionDTO {
+  emoji: string;
+  userId: string;
+  name: string;
+}
+
+/** Compact preview of the message being replied to (quote-reply). */
+export interface ReplyPreviewDTO {
+  id: string;
+  senderName: string;
+  content: string;
+  hasAttachments: boolean;
+}
+
 export interface MessageDTO {
   id: string;
   conversationId: string;
@@ -19,6 +33,14 @@ export interface MessageDTO {
     image: string | null;
   };
   attachments: AttachmentDTO[];
+  reactions: ReactionDTO[];
+  replyTo: ReplyPreviewDTO | null;
+  /** ISO timestamp the message was last edited, or null. */
+  editedAt: string | null;
+  /** ISO timestamp the message was deleted, or null (content is blanked when set). */
+  deletedAt: string | null;
+  /** ISO timestamp a disappearing message vanishes at, or null. */
+  expiresAt: string | null;
 }
 
 export interface CallInvite {
@@ -29,6 +51,10 @@ export interface CallInvite {
 
 export interface ServerToClientEvents {
   "message:new": (message: MessageDTO) => void;
+  /** A message changed — edited, deleted, or its reactions updated. Replace by id. */
+  "message:update": (message: MessageDTO) => void;
+  /** Read receipt: this member has read the conversation up to `at`. */
+  "read": (data: { conversationId: string; userId: string; name: string; at: string }) => void;
   "typing": (data: {
     conversationId: string;
     userId: string;
@@ -60,9 +86,31 @@ export interface ClientToServerEvents {
   "conversation:join": (conversationId: string) => void;
   "conversation:leave": (conversationId: string) => void;
   "message:send": (
-    data: { conversationId: string; content: string; attachments?: AttachmentDTO[] },
+    data: {
+      conversationId: string;
+      content: string;
+      attachments?: AttachmentDTO[];
+      /** id of the message this one replies to (quote-reply). */
+      replyToId?: string;
+      /** disappearing message: seconds until it vanishes (0/undefined = permanent). */
+      expireSeconds?: number;
+    },
     ack?: (res: { ok: boolean; error?: string; message?: MessageDTO }) => void,
   ) => void;
+  /** Add the emoji if absent, remove it if you already reacted with it. */
+  "reaction:toggle": (data: { messageId: string; emoji: string }) => void;
+  /** Edit your own message's text. */
+  "message:edit": (
+    data: { messageId: string; content: string },
+    ack?: (res: { ok: boolean; error?: string }) => void,
+  ) => void;
+  /** Soft-delete your own message ("This message was deleted"). */
+  "message:delete": (
+    data: { messageId: string },
+    ack?: (res: { ok: boolean; error?: string }) => void,
+  ) => void;
+  /** Mark the conversation read up to now (drives "Seen" receipts). */
+  "read": (data: { conversationId: string }) => void;
   "typing": (data: { conversationId: string; isTyping: boolean; text?: string }) => void;
   /** Tell peers whether you are actively viewing this conversation. */
   "convo:active": (data: { conversationId: string; active: boolean }) => void;

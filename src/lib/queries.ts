@@ -1,4 +1,63 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { MessageDTO } from "@/lib/realtime-events";
+
+/** Everything needed to build a MessageDTO in one query — shared by the loader
+ *  and the realtime server so both shapes stay identical. */
+export const messageInclude = {
+  sender: { select: { id: true, name: true, image: true } },
+  attachments: { select: { url: true, name: true, contentType: true, size: true } },
+  reactions: { select: { emoji: true, userId: true, user: { select: { name: true } } } },
+  replyTo: {
+    select: {
+      id: true,
+      content: true,
+      deletedAt: true,
+      sender: { select: { name: true } },
+      attachments: { select: { id: true } },
+    },
+  },
+} satisfies Prisma.MessageInclude;
+
+type MessageWithRelations = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
+
+/** Hide a soft-deleted message's content/attachments while keeping it in the thread. */
+export function toMessageDTO(m: MessageWithRelations): MessageDTO {
+  const deleted = Boolean(m.deletedAt);
+  return {
+    id: m.id,
+    conversationId: m.conversationId,
+    content: deleted ? "" : m.content,
+    createdAt: m.createdAt.toISOString(),
+    sender: m.sender,
+    attachments: deleted ? [] : m.attachments,
+    reactions: deleted
+      ? []
+      : m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId, name: r.user.name })),
+    replyTo: m.replyTo
+      ? {
+          id: m.replyTo.id,
+          senderName: m.replyTo.sender.name,
+          content: m.replyTo.deletedAt ? "" : m.replyTo.content,
+          hasAttachments: m.replyTo.attachments.length > 0,
+        }
+      : null,
+    editedAt: m.editedAt ? m.editedAt.toISOString() : null,
+    deletedAt: m.deletedAt ? m.deletedAt.toISOString() : null,
+    expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
+  };
+}
+
+/** Message visibility filter shared by loaders: skip disappeared messages and
+ *  scheduled messages that haven't been delivered yet (sender still sees own). */
+export function visibleMessageWhere(userId: string, now: Date): Prisma.MessageWhereInput {
+  return {
+    AND: [
+      { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+      { OR: [{ scheduledFor: null }, { deliveredAt: { not: null } }, { senderId: userId }] },
+    ],
+  };
+}
 
 export interface ConversationListItem {
   id: string;
@@ -22,6 +81,8 @@ export async function getConversationsForUser(
         include: { user: { select: { id: true, name: true, image: true } } },
       },
       messages: {
+        // Don't preview deleted, expired, or not-yet-delivered messages.
+        where: { deletedAt: null, ...visibleMessageWhere(userId, new Date()) },
         orderBy: { createdAt: "desc" },
         take: 1,
         select: { content: true, createdAt: true, senderId: true },
@@ -62,19 +123,18 @@ export async function getConversationForUser(conversationId: string, userId: str
   if (!conversation) return null;
 
   const messages = await prisma.message.findMany({
-    where: { conversationId },
+    where: { conversationId, ...visibleMessageWhere(userId, new Date()) },
     orderBy: { createdAt: "asc" },
     take: 100,
-    include: {
-      sender: { select: { id: true, name: true, image: true } },
-      attachments: {
-        select: { url: true, name: true, contentType: true, size: true },
-      },
-    },
+    include: messageInclude,
   });
 
   const otherUser = conversation.members.find((m) => m.userId !== userId)?.user ?? null;
   const members = conversation.members.map((m) => m.user);
+  // Read receipts: when each *other* member last read this conversation.
+  const memberReads = conversation.members
+    .filter((m) => m.userId !== userId)
+    .map((m) => ({ userId: m.userId, lastReadAt: m.lastReadAt?.toISOString() ?? null }));
 
   return {
     id: conversation.id,
@@ -83,14 +143,8 @@ export async function getConversationForUser(conversationId: string, userId: str
     otherUser,
     members,
     memberCount: members.length,
-    messages: messages.map((m) => ({
-      id: m.id,
-      conversationId: m.conversationId,
-      content: m.content,
-      createdAt: m.createdAt.toISOString(),
-      sender: m.sender,
-      attachments: m.attachments,
-    })),
+    memberReads,
+    messages: messages.map(toMessageDTO),
   };
 }
 
@@ -109,6 +163,11 @@ export async function getOrCreateDirectConversation(userId: string, otherUserId:
     select: { id: true },
   });
   if (existing) return existing.id;
+
+  // Guard against stale references (e.g. a session whose User row was removed)
+  // so we fail with a clear message instead of a raw foreign-key violation.
+  const found = await prisma.user.count({ where: { id: { in: [userId, otherUserId] } } });
+  if (found < 2) throw new Error("One of the participants no longer exists");
 
   const created = await prisma.conversation.create({
     data: {

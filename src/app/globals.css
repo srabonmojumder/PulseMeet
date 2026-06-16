@@ -116,3 +116,13 @@ body {
 .pm-glow {
   animation: pm-glow 2s ease-out infinite;
 }
+
+/* Brief highlight when jumping to a quoted message */
+@keyframes pm-flash {
+  0% { background-color: rgba(99, 102, 241, 0.18); }
+  100% { background-color: transparent; }
+}
+.pm-flash {
+  animation: pm-flash 1.2s ease-out;
+  border-radius: 0.75rem;
+}

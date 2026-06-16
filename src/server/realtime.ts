@@ -1,10 +1,10 @@
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { messageInclude, toMessageDTO } from "@/lib/queries";
 import { verifySocketToken } from "@/lib/socket-token";
 import type {
   ClientToServerEvents,
-  MessageDTO,
   ServerToClientEvents,
   SocketData,
 } from "@/lib/realtime-events";
@@ -22,11 +22,15 @@ const attachmentSchema = z.object({
   size: z.number().int().nonnegative(),
 });
 
+const MAX_EXPIRE_SECONDS = 7 * 24 * 60 * 60; // a disappearing message lasts at most a week
+
 const sendSchema = z
   .object({
     conversationId: z.string().min(1),
     content: z.string().trim().max(4000),
     attachments: z.array(attachmentSchema).max(10).optional(),
+    replyToId: z.string().min(1).optional(),
+    expireSeconds: z.number().int().positive().max(MAX_EXPIRE_SECONDS).optional(),
   })
   // A message must carry text, attachments, or both.
   .refine((d) => d.content.length > 0 || (d.attachments?.length ?? 0) > 0, {
@@ -56,6 +60,13 @@ async function isMember(userId: string, conversationId: string): Promise<boolean
     select: { id: true },
   });
   return Boolean(member);
+}
+
+/** Re-read a message with all its relations and broadcast the fresh DTO so every
+ *  open client replaces its copy (used for edits, deletes, and reaction changes). */
+async function emitMessageUpdate(io: AppServer, conversationId: string, messageId: string) {
+  const m = await prisma.message.findUnique({ where: { id: messageId }, include: messageInclude });
+  if (m) io.to(roomFor(conversationId)).emit("message:update", toMessageDTO(m));
 }
 
 export function attachRealtime(io: AppServer) {
@@ -160,45 +171,146 @@ export function attachRealtime(io: AppServer) {
         ack?.({ ok: false, error: "Invalid message" });
         return;
       }
-      const { conversationId, content, attachments } = parsed.data;
+      const { conversationId, content, attachments, replyToId, expireSeconds } = parsed.data;
 
       if (!(await isMember(userId, conversationId))) {
         ack?.({ ok: false, error: "Not a member of this conversation" });
         return;
       }
 
+      // A reply must point at a message in the same conversation.
+      let validReplyId: string | undefined;
+      if (replyToId) {
+        const parent = await prisma.message.findFirst({
+          where: { id: replyToId, conversationId },
+          select: { id: true },
+        });
+        validReplyId = parent?.id;
+      }
+
+      const expiresAt = expireSeconds
+        ? new Date(Date.now() + expireSeconds * 1000)
+        : null;
+
       const created = await prisma.message.create({
         data: {
           conversationId,
           senderId: userId,
           content,
-          attachments: attachments?.length
-            ? { create: attachments }
-            : undefined,
+          replyToId: validReplyId,
+          expiresAt,
+          attachments: attachments?.length ? { create: attachments } : undefined,
         },
-        include: {
-          sender: { select: { id: true, name: true, image: true } },
-          attachments: {
-            select: { url: true, name: true, contentType: true, size: true },
-          },
-        },
+        include: messageInclude,
       });
       await prisma.conversation.update({
         where: { id: conversationId },
         data: { updatedAt: new Date() },
       });
 
-      const dto: MessageDTO = {
-        id: created.id,
-        conversationId: created.conversationId,
-        content: created.content,
-        createdAt: created.createdAt.toISOString(),
-        sender: created.sender,
-        attachments: created.attachments,
-      };
-
+      const dto = toMessageDTO(created);
       io.to(roomFor(conversationId)).emit("message:new", dto);
       ack?.({ ok: true, message: dto });
+    });
+
+    // Toggle an emoji reaction on a message (add if absent, remove if present).
+    socket.on("reaction:toggle", async ({ messageId, emoji }) => {
+      if (typeof messageId !== "string" || typeof emoji !== "string") return;
+      const e = emoji.slice(0, 16);
+      if (!e) return;
+      const msg = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { conversationId: true, deletedAt: true },
+      });
+      if (!msg || msg.deletedAt) return;
+      if (!(await isMember(userId, msg.conversationId))) return;
+
+      const existing = await prisma.reaction.findUnique({
+        where: { messageId_userId_emoji: { messageId, userId, emoji: e } },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.reaction.delete({ where: { id: existing.id } });
+      } else {
+        await prisma.reaction.create({ data: { messageId, userId, emoji: e } });
+      }
+      await emitMessageUpdate(io, msg.conversationId, messageId);
+    });
+
+    // Edit your own message's text.
+    socket.on("message:edit", async ({ messageId, content }, ack) => {
+      const text = typeof content === "string" ? content.trim() : "";
+      if (typeof messageId !== "string" || !text || text.length > 4000) {
+        ack?.({ ok: false, error: "Invalid message" });
+        return;
+      }
+      const msg = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { senderId: true, conversationId: true, deletedAt: true },
+      });
+      if (!msg || msg.deletedAt) {
+        ack?.({ ok: false, error: "Message not found" });
+        return;
+      }
+      if (msg.senderId !== userId) {
+        ack?.({ ok: false, error: "You can only edit your own messages" });
+        return;
+      }
+      await prisma.message.update({
+        where: { id: messageId },
+        data: { content: text, editedAt: new Date() },
+      });
+      await emitMessageUpdate(io, msg.conversationId, messageId);
+      ack?.({ ok: true });
+    });
+
+    // Soft-delete your own message — the row stays so replies don't break.
+    socket.on("message:delete", async ({ messageId }, ack) => {
+      if (typeof messageId !== "string") {
+        ack?.({ ok: false, error: "Invalid request" });
+        return;
+      }
+      const msg = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { senderId: true, conversationId: true, deletedAt: true },
+      });
+      if (!msg) {
+        ack?.({ ok: false, error: "Message not found" });
+        return;
+      }
+      if (msg.senderId !== userId) {
+        ack?.({ ok: false, error: "You can only delete your own messages" });
+        return;
+      }
+      if (!msg.deletedAt) {
+        await prisma.message.update({
+          where: { id: messageId },
+          data: {
+            deletedAt: new Date(),
+            attachments: { deleteMany: {} },
+            reactions: { deleteMany: {} },
+          },
+        });
+      }
+      await emitMessageUpdate(io, msg.conversationId, messageId);
+      ack?.({ ok: true });
+    });
+
+    // Mark the conversation read up to now → "Seen" receipts for the other members.
+    socket.on("read", async ({ conversationId }) => {
+      if (typeof conversationId !== "string") return;
+      if (!(await isMember(userId, conversationId))) return;
+      const at = new Date();
+      await prisma.conversationMember.update({
+        where: { conversationId_userId: { conversationId, userId } },
+        data: { lastReadAt: at },
+      });
+      socket.to(roomFor(conversationId)).emit("read", {
+        conversationId,
+        userId,
+        name,
+        at: at.toISOString(),
+      });
     });
 
     socket.on("call:invite", async ({ conversationId, withVideo }) => {
