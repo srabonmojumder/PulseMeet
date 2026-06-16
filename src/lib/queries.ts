@@ -45,6 +45,8 @@ export function toMessageDTO(m: MessageWithRelations): MessageDTO {
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     deletedAt: m.deletedAt ? m.deletedAt.toISOString() : null,
     expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
+    pinnedAt: m.pinnedAt ? m.pinnedAt.toISOString() : null,
+    scheduledFor: m.scheduledFor ? m.scheduledFor.toISOString() : null,
   };
 }
 

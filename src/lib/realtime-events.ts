@@ -41,6 +41,10 @@ export interface MessageDTO {
   deletedAt: string | null;
   /** ISO timestamp a disappearing message vanishes at, or null. */
   expiresAt: string | null;
+  /** ISO timestamp the message was pinned, or null. */
+  pinnedAt: string | null;
+  /** ISO timestamp a scheduled message is due to send, or null. */
+  scheduledFor: string | null;
 }
 
 export interface CallInvite {
@@ -94,8 +98,15 @@ export interface ClientToServerEvents {
       replyToId?: string;
       /** disappearing message: seconds until it vanishes (0/undefined = permanent). */
       expireSeconds?: number;
+      /** scheduled send: seconds from now to deliver (0/undefined = send now). */
+      scheduleSeconds?: number;
     },
     ack?: (res: { ok: boolean; error?: string; message?: MessageDTO }) => void,
+  ) => void;
+  /** Pin or unpin a message to the top of the conversation. */
+  "message:pin": (
+    data: { messageId: string; pinned: boolean },
+    ack?: (res: { ok: boolean; error?: string }) => void,
   ) => void;
   /** Add the emoji if absent, remove it if you already reacted with it. */
   "reaction:toggle": (data: { messageId: string; emoji: string }) => void;

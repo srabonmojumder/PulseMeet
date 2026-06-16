@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -25,6 +25,11 @@ import {
   Check,
   Clock,
   Image as ImageIcon,
+  Pin,
+  Search,
+  CalendarClock,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
@@ -97,24 +102,119 @@ const EXPIRE_OPTIONS = [
   { label: "1 day", value: 86400 },
 ];
 
-// Render message text with clickable links.
-function renderText(text: string) {
-  const parts = text.split(/(https?:\/\/[^\s]+)/g);
-  return parts.map((part, i) =>
-    /^https?:\/\//.test(part) ? (
-      <a
-        key={i}
-        href={part}
-        target="_blank"
-        rel="noreferrer"
-        className="underline decoration-white/40 underline-offset-2 hover:decoration-white"
-      >
-        {part}
-      </a>
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Wrap occurrences of the search term in <mark> (case-insensitive).
+function highlightParts(text: string, highlight: string | undefined, keyBase: string): ReactNode {
+  const q = highlight?.trim();
+  if (!q) return text;
+  const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "gi"));
+  return parts.map((p, i) =>
+    p.toLowerCase() === q.toLowerCase() ? (
+      <mark key={`${keyBase}-h${i}`} className="rounded bg-amber-300/40 text-white">
+        {p}
+      </mark>
     ) : (
-      <span key={i}>{part}</span>
+      <Fragment key={`${keyBase}-h${i}`}>{p}</Fragment>
     ),
   );
+}
+
+// Inline markdown: `code`, **bold**, *italic* / _italic_, links, @mentions — plus
+// optional search highlighting on the plain text between tokens.
+function renderInline(text: string, highlight: string | undefined, keyBase: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const regex =
+    /(`[^`]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(_[^_\n]+_)|(https?:\/\/[^\s]+)|(@[A-Za-z0-9_.-]+)/g;
+  let last = 0;
+  let idx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) {
+      nodes.push(
+        <span key={`${keyBase}-t${idx}`}>{highlightParts(text.slice(last, m.index), highlight, `${keyBase}-t${idx}`)}</span>,
+      );
+      idx += 1;
+    }
+    const tok = m[0];
+    if (m[1]) {
+      nodes.push(
+        <code key={`${keyBase}-c${idx}`} className="rounded bg-black/30 px-1 py-0.5 font-mono text-[0.85em]">
+          {tok.slice(1, -1)}
+        </code>,
+      );
+    } else if (m[2]) {
+      nodes.push(<strong key={`${keyBase}-b${idx}`}>{highlightParts(tok.slice(2, -2), highlight, `${keyBase}-b${idx}`)}</strong>);
+    } else if (m[3] || m[4]) {
+      nodes.push(<em key={`${keyBase}-i${idx}`}>{highlightParts(tok.slice(1, -1), highlight, `${keyBase}-i${idx}`)}</em>);
+    } else if (m[5]) {
+      nodes.push(
+        <a
+          key={`${keyBase}-l${idx}`}
+          href={tok}
+          target="_blank"
+          rel="noreferrer"
+          className="underline decoration-white/40 underline-offset-2 hover:decoration-white"
+        >
+          {tok}
+        </a>,
+      );
+    } else if (m[6]) {
+      nodes.push(
+        <span key={`${keyBase}-m${idx}`} className="rounded bg-indigo-400/20 px-1 font-medium text-indigo-200">
+          {tok}
+        </span>,
+      );
+    }
+    idx += 1;
+    last = m.index + tok.length;
+  }
+  if (last < text.length) {
+    nodes.push(<span key={`${keyBase}-t${idx}`}>{highlightParts(text.slice(last), highlight, `${keyBase}-t${idx}`)}</span>);
+  }
+  return nodes;
+}
+
+// Render message text: fenced ```code blocks``` + inline markdown / links / mentions.
+function renderText(text: string, highlight?: string): ReactNode[] {
+  const segments = text.split(/(```[\s\S]*?```)/g);
+  return segments.map((seg, i) => {
+    if (seg.length >= 6 && seg.startsWith("```") && seg.endsWith("```")) {
+      const code = seg.slice(3, -3).replace(/^\n/, "");
+      return (
+        <pre
+          key={`code-${i}`}
+          className="my-1 overflow-x-auto rounded-lg bg-black/30 p-2 font-mono text-[0.8em] text-white/90"
+        >
+          {code}
+        </pre>
+      );
+    }
+    return <span key={`seg-${i}`}>{renderInline(seg, highlight, `s${i}`)}</span>;
+  });
+}
+
+// Synchronized "send effects": certain words/emoji trigger a celebratory burst
+// on everyone's screen (it fires from message:new, which the room all receives).
+const EFFECT_TRIGGERS: { test: RegExp; emojis: string[] }[] = [
+  { test: /🎉|🎊|🥳|congrats|congratulation/i, emojis: ["🎉", "🎊", "✨", "🥳"] },
+  { test: /🎂|🎈|happy birthday|\bbirthday\b/i, emojis: ["🎂", "🎉", "🥳", "🎈"] },
+  { test: /❤️|💕|🥰|😍|love you/i, emojis: ["❤️", "💕", "😍", "🥰"] },
+  { test: /🔥|🚀|💯|awesome|amazing/i, emojis: ["🔥", "🚀", "⭐", "💯"] },
+];
+function effectFor(content: string): string[] | null {
+  for (const e of EFFECT_TRIGGERS) if (e.test.test(content)) return e.emojis;
+  return null;
+}
+
+// Seconds from now until a datetime-local value (undefined if empty/past).
+// Module-level so the `Date.now()` read stays out of the component render path.
+function scheduleSecondsFrom(scheduleAt: string): number | undefined {
+  if (!scheduleAt) return undefined;
+  const diff = Math.round((new Date(scheduleAt).getTime() - Date.now()) / 1000);
+  return diff > 0 ? diff : undefined;
 }
 
 // Group raw reactions into { emoji, count, names, mine } for display.
@@ -227,6 +327,12 @@ export function MessageThread({
     { open: false, loading: false, list: [], error: "" },
   );
 
+  // Search + scheduled send.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [scheduleAt, setScheduleAt] = useState(""); // datetime-local string ("" = off)
+
   const online = otherUserId ? onlineUsers.has(otherUserId) : false;
   // Co-presence: is the other person actively viewing THIS chat right now?
   const peerHere = otherUserId ? peerActive.has(otherUserId) : false;
@@ -242,6 +348,13 @@ export function MessageThread({
   function sendReaction(emoji: string) {
     socket?.emit("reaction:fly", { conversationId, emoji });
     spawnFly(emoji);
+  }
+
+  function togglePin(m: MessageDTO) {
+    socket?.emit("message:pin", { messageId: m.id, pinned: !m.pinnedAt }, (res) => {
+      if (!res.ok) alert(res.error ?? "Couldn't pin the message");
+    });
+    setPickerFor(null);
   }
 
   const markRead = useCallback(() => {
@@ -262,6 +375,10 @@ export function MessageThread({
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
       // A real message clears that sender's live preview.
       setLivePreview((p) => (p && p.name === msg.sender.name ? null : p));
+      // Synchronized send effect — every member receives this event, so the
+      // celebratory burst fires for everyone at once (the sender included).
+      const fx = effectFor(msg.content);
+      if (fx) for (let k = 0; k < 14; k++) setTimeout(() => spawnFly(fx[k % fx.length]), k * 55);
       if (msg.sender.id !== currentUserId) {
         if (typeof document !== "undefined" && document.hidden) {
           playBeep();
@@ -499,18 +616,36 @@ export function MessageThread({
       setUploading(false);
     }
 
-    socket.emit("message:send", {
-      conversationId,
-      content,
-      attachments,
-      replyToId: replyingTo?.id,
-      expireSeconds: expireSeconds || undefined,
-    });
+    // Scheduled send: seconds-from-now (must be in the future).
+    const scheduleSeconds = scheduleSecondsFrom(scheduleAt);
+
+    socket.emit(
+      "message:send",
+      {
+        conversationId,
+        content,
+        attachments,
+        replyToId: replyingTo?.id,
+        expireSeconds: expireSeconds || undefined,
+        scheduleSeconds,
+      },
+      (res) => {
+        // Scheduled messages aren't broadcast yet, so add ours locally as pending.
+        if (res.ok && res.message && scheduleSeconds) {
+          setMessages((prev) =>
+            prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!],
+          );
+        } else if (!res.ok) {
+          alert(res.error ?? "Couldn't send the message");
+        }
+      },
+    );
     stopTyping();
     draftRef.current = "";
     setInput("");
     setPendingFiles([]);
     setReplyingTo(null);
+    setScheduleAt("");
     setSuggest((s) => ({ ...s, open: false }));
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -617,6 +752,27 @@ export function MessageThread({
   // For DIRECT chats: id of my last visible message (for the "Seen" receipt).
   const lastMineId = [...visibleMessages].reverse().find((m) => m.sender.id === currentUserId && !m.deletedAt)?.id;
 
+  // Pinned messages (newest first).
+  const pinned = visibleMessages
+    .filter((m) => m.pinnedAt && !m.deletedAt)
+    .sort((a, b) => new Date(b.pinnedAt!).getTime() - new Date(a.pinnedAt!).getTime());
+
+  // Search matches within the conversation.
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const matches =
+    searchOpen && trimmedQuery
+      ? visibleMessages.filter((m) => !m.deletedAt && m.content.toLowerCase().includes(trimmedQuery))
+      : [];
+  const activeMatchId = matches.length ? matches[Math.min(matchIndex, matches.length - 1)]?.id : undefined;
+
+  function jumpMatch(dir: 1 | -1) {
+    if (!matches.length) return;
+    const next = (matchIndex + dir + matches.length) % matches.length;
+    setMatchIndex(next);
+    const id = matches[next]?.id;
+    if (id) scrollToMessage(id);
+  }
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Floating reactions overlay (synchronized across members) */}
@@ -677,6 +833,18 @@ export function MessageThread({
         {/* Controls */}
         <div className="flex items-center gap-2">
           <button
+            onClick={() => {
+              setSearchOpen((s) => !s);
+              setSearchQuery("");
+            }}
+            title="Search messages"
+            className={`flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 transition hover:bg-white/5 hover:text-white ${
+              searchOpen ? "bg-white/10 text-white" : "text-white/70"
+            }`}
+          >
+            <Search size={16} />
+          </button>
+          <button
             onClick={runCatchup}
             disabled={!connected}
             title="Catch me up (AI summary)"
@@ -711,6 +879,85 @@ export function MessageThread({
           </button>
         </div>
       </div>
+
+      {/* Search bar */}
+      {searchOpen && (
+        <div className="flex items-center gap-2 border-b border-white/5 bg-white/[0.03] px-4 py-2 sm:px-6">
+          <Search size={15} className="shrink-0 text-white/40" />
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setMatchIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                jumpMatch(e.shiftKey ? -1 : 1);
+              }
+              if (e.key === "Escape") {
+                setSearchOpen(false);
+                setSearchQuery("");
+              }
+            }}
+            placeholder="Search this conversation…"
+            className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 outline-none"
+          />
+          {trimmedQuery && (
+            <span className="shrink-0 text-xs tabular-nums text-white/40">
+              {matches.length ? `${Math.min(matchIndex, matches.length - 1) + 1}/${matches.length}` : "0/0"}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => jumpMatch(-1)}
+            disabled={!matches.length}
+            title="Previous"
+            className="shrink-0 rounded-lg p-1 text-white/50 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+          >
+            <ChevronUp size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => jumpMatch(1)}
+            disabled={!matches.length}
+            title="Next"
+            className="shrink-0 rounded-lg p-1 text-white/50 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+          >
+            <ChevronDown size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchQuery("");
+            }}
+            className="shrink-0 rounded-lg p-1 text-white/50 transition hover:bg-white/10 hover:text-white"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
+      {/* Pinned messages banner */}
+      {pinned.length > 0 && (
+        <button
+          type="button"
+          onClick={() => scrollToMessage(pinned[0].id)}
+          className="flex w-full items-center gap-2 border-b border-amber-400/15 bg-amber-400/[0.05] px-4 py-2 text-left transition hover:bg-amber-400/10 sm:px-6"
+        >
+          <Pin size={14} className="shrink-0 -rotate-45 text-amber-300" />
+          <div className="min-w-0 flex-1 text-xs">
+            <span className="font-semibold text-amber-300/90">
+              Pinned{pinned.length > 1 ? ` · ${pinned.length}` : ""}
+            </span>
+            <span className="ml-2 text-white/55">
+              {pinned[0].sender.name}: {pinned[0].content || (pinned[0].attachments.length ? "📎 Attachment" : "")}
+            </span>
+          </div>
+        </button>
+      )}
 
       {/* AI "Catch me up" panel */}
       {catchup.open && (
@@ -757,6 +1004,8 @@ export function MessageThread({
           const deleted = Boolean(m.deletedAt);
           const groupedReactions = groupReactions(m.reactions, currentUserId);
           const showSeen = !isGroup && mine && m.id === lastMineId && peerReadAt >= new Date(m.createdAt).getTime();
+          const scheduled = Boolean(m.scheduledFor && new Date(m.scheduledFor).getTime() > nowMs);
+          const isActiveMatch = m.id === activeMatchId;
 
           return (
             <div key={m.id} id={`msg-${m.id}`} className="pm-msg">
@@ -779,10 +1028,12 @@ export function MessageThread({
                 {mine && !deleted && (
                   <MessageActions
                     mine
+                    pinned={Boolean(m.pinnedAt)}
                     pickerOpen={pickerFor === m.id}
                     onTogglePicker={() => setPickerFor((p) => (p === m.id ? null : m.id))}
                     onReact={(emoji) => toggleReaction(m.id, emoji)}
                     onReply={() => startReply(m)}
+                    onPin={() => togglePin(m)}
                     onEdit={() => startEdit(m)}
                     onDelete={() => deleteMessage(m.id)}
                   />
@@ -790,7 +1041,7 @@ export function MessageThread({
 
                 <div className="flex max-w-[78%] flex-col sm:max-w-[68%]">
                   <div
-                    className={`px-4 py-2 text-sm shadow-sm ${
+                    className={`px-4 py-2 text-sm shadow-sm ${isActiveMatch ? "ring-2 ring-amber-300/70 " : ""}${
                       deleted
                         ? "rounded-2xl border border-white/10 bg-white/[0.03] italic text-white/40"
                         : mine
@@ -825,7 +1076,9 @@ export function MessageThread({
                     ) : (
                       <>
                         {m.content && (
-                          <div className="whitespace-pre-wrap break-words">{renderText(m.content)}</div>
+                          <div className="whitespace-pre-wrap break-words">
+                            {renderText(m.content, searchOpen && trimmedQuery ? searchQuery : undefined)}
+                          </div>
                         )}
                         {m.attachments.length > 0 && (
                           <div className="mt-1.5 space-y-1.5">
@@ -880,6 +1133,12 @@ export function MessageThread({
                         mine ? "text-white/70" : "text-white/35"
                       }`}
                     >
+                      {scheduled && (
+                        <span className="flex items-center gap-0.5 rounded-full bg-black/20 px-1.5 py-0.5">
+                          <CalendarClock size={9} /> Scheduled · {formatTime(m.scheduledFor!)}
+                        </span>
+                      )}
+                      {m.pinnedAt && !deleted && <Pin size={9} className="-rotate-45 opacity-70" />}
                       {m.expiresAt && !deleted && (
                         <span className="flex items-center gap-0.5 rounded-full bg-black/20 px-1.5 py-0.5">
                           <Clock size={9} /> {remainingLabel(m.expiresAt, nowMs)}
@@ -925,10 +1184,12 @@ export function MessageThread({
                 {!mine && !deleted && (
                   <MessageActions
                     mine={false}
+                    pinned={Boolean(m.pinnedAt)}
                     pickerOpen={pickerFor === m.id}
                     onTogglePicker={() => setPickerFor((p) => (p === m.id ? null : m.id))}
                     onReact={(emoji) => toggleReaction(m.id, emoji)}
                     onReply={() => startReply(m)}
+                    onPin={() => togglePin(m)}
                   />
                 )}
               </div>
@@ -1038,6 +1299,30 @@ export function MessageThread({
               onClick={() => setExpireSeconds(0)}
               title="Turn off"
               className="shrink-0 rounded-lg p-1 text-indigo-200/70 transition hover:bg-white/10 hover:text-white"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        {scheduleAt && new Date(scheduleAt).getTime() > nowMs && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-200">
+            <CalendarClock size={13} className="shrink-0" />
+            <span className="flex-1">
+              Sends{" "}
+              {new Date(scheduleAt).toLocaleString([], {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setScheduleAt("")}
+              title="Cancel schedule"
+              className="shrink-0 rounded-lg p-1 text-violet-200/70 transition hover:bg-white/10 hover:text-white"
             >
               <X size={13} />
             </button>
@@ -1210,6 +1495,19 @@ export function MessageThread({
                       ))}
                     </div>
                   </div>
+
+                  <div className="my-1 border-t border-white/10" />
+                  <div className="px-2 pb-1 pt-1">
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-white/40">
+                      <CalendarClock size={12} /> Schedule send
+                    </div>
+                    <input
+                      type="datetime-local"
+                      value={scheduleAt}
+                      onChange={(e) => setScheduleAt(e.target.value)}
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none [color-scheme:dark]"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -1290,21 +1588,25 @@ export function MessageThread({
   );
 }
 
-// Hover toolbar shown beside each message: react, reply, and (own messages) edit/delete.
+// Hover toolbar shown beside each message: react, reply, pin, and (own messages) edit/delete.
 function MessageActions({
   mine,
+  pinned,
   pickerOpen,
   onTogglePicker,
   onReact,
   onReply,
+  onPin,
   onEdit,
   onDelete,
 }: {
   mine: boolean;
+  pinned: boolean;
   pickerOpen: boolean;
   onTogglePicker: () => void;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  onPin: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -1349,6 +1651,16 @@ function MessageActions({
         className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
       >
         <Reply size={15} />
+      </button>
+      <button
+        type="button"
+        onClick={onPin}
+        title={pinned ? "Unpin" : "Pin"}
+        className={`flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-white/10 hover:text-white ${
+          pinned ? "text-amber-300" : "text-white/40"
+        }`}
+      >
+        <Pin size={14} className="-rotate-45" />
       </button>
       {mine && onEdit && (
         <button

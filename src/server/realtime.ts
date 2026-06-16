@@ -23,6 +23,7 @@ const attachmentSchema = z.object({
 });
 
 const MAX_EXPIRE_SECONDS = 7 * 24 * 60 * 60; // a disappearing message lasts at most a week
+const MAX_SCHEDULE_SECONDS = 30 * 24 * 60 * 60; // schedule at most a month out
 
 const sendSchema = z
   .object({
@@ -31,6 +32,7 @@ const sendSchema = z
     attachments: z.array(attachmentSchema).max(10).optional(),
     replyToId: z.string().min(1).optional(),
     expireSeconds: z.number().int().positive().max(MAX_EXPIRE_SECONDS).optional(),
+    scheduleSeconds: z.number().int().positive().max(MAX_SCHEDULE_SECONDS).optional(),
   })
   // A message must carry text, attachments, or both.
   .refine((d) => d.content.length > 0 || (d.attachments?.length ?? 0) > 0, {
@@ -69,7 +71,36 @@ async function emitMessageUpdate(io: AppServer, conversationId: string, messageI
   if (m) io.to(roomFor(conversationId)).emit("message:update", toMessageDTO(m));
 }
 
+// Releases scheduled messages once their send time arrives, then broadcasts them
+// like any normal message. Runs once per server process.
+let sweeperStarted = false;
+function startScheduledSweeper(io: AppServer) {
+  if (sweeperStarted) return;
+  sweeperStarted = true;
+  setInterval(async () => {
+    try {
+      const due = await prisma.message.findMany({
+        where: { scheduledFor: { lte: new Date() }, deliveredAt: null },
+        include: messageInclude,
+        take: 50,
+      });
+      for (const m of due) {
+        await prisma.message.update({ where: { id: m.id }, data: { deliveredAt: new Date() } });
+        await prisma.conversation.update({
+          where: { id: m.conversationId },
+          data: { updatedAt: new Date() },
+        });
+        io.to(roomFor(m.conversationId)).emit("message:new", toMessageDTO(m));
+      }
+    } catch (err) {
+      console.error("scheduled-message sweeper error:", err);
+    }
+  }, 10_000);
+}
+
 export function attachRealtime(io: AppServer) {
+  startScheduledSweeper(io);
+
   // Authenticate every connection with the short-lived signed token.
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
@@ -171,7 +202,8 @@ export function attachRealtime(io: AppServer) {
         ack?.({ ok: false, error: "Invalid message" });
         return;
       }
-      const { conversationId, content, attachments, replyToId, expireSeconds } = parsed.data;
+      const { conversationId, content, attachments, replyToId, expireSeconds, scheduleSeconds } =
+        parsed.data;
 
       if (!(await isMember(userId, conversationId))) {
         ack?.({ ok: false, error: "Not a member of this conversation" });
@@ -188,9 +220,11 @@ export function attachRealtime(io: AppServer) {
         validReplyId = parent?.id;
       }
 
-      const expiresAt = expireSeconds
-        ? new Date(Date.now() + expireSeconds * 1000)
-        : null;
+      const now = Date.now();
+      const expiresAt = expireSeconds ? new Date(now + expireSeconds * 1000) : null;
+      // Scheduled: store dated in the future and DON'T broadcast — the sweeper
+      // releases it when due. createdAt is set to the send time so it sorts right.
+      const scheduledFor = scheduleSeconds ? new Date(now + scheduleSeconds * 1000) : null;
 
       const created = await prisma.message.create({
         data: {
@@ -199,18 +233,52 @@ export function attachRealtime(io: AppServer) {
           content,
           replyToId: validReplyId,
           expiresAt,
+          scheduledFor,
+          createdAt: scheduledFor ?? undefined,
           attachments: attachments?.length ? { create: attachments } : undefined,
         },
         include: messageInclude,
       });
+
+      const dto = toMessageDTO(created);
+      if (scheduledFor) {
+        // Only the sender learns about it (as "scheduled") until it's delivered.
+        ack?.({ ok: true, message: dto });
+        return;
+      }
+
       await prisma.conversation.update({
         where: { id: conversationId },
         data: { updatedAt: new Date() },
       });
-
-      const dto = toMessageDTO(created);
       io.to(roomFor(conversationId)).emit("message:new", dto);
       ack?.({ ok: true, message: dto });
+    });
+
+    // Pin / unpin a message to the top of the conversation (any member).
+    socket.on("message:pin", async ({ messageId, pinned }, ack) => {
+      if (typeof messageId !== "string") {
+        ack?.({ ok: false, error: "Invalid request" });
+        return;
+      }
+      const msg = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { conversationId: true, deletedAt: true },
+      });
+      if (!msg || msg.deletedAt) {
+        ack?.({ ok: false, error: "Message not found" });
+        return;
+      }
+      if (!(await isMember(userId, msg.conversationId))) {
+        ack?.({ ok: false, error: "Not a member of this conversation" });
+        return;
+      }
+      await prisma.message.update({
+        where: { id: messageId },
+        data: { pinnedAt: pinned ? new Date() : null },
+      });
+      await emitMessageUpdate(io, msg.conversationId, messageId);
+      ack?.({ ok: true });
     });
 
     // Toggle an emoji reaction on a message (add if absent, remove if present).

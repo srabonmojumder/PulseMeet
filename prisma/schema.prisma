@@ -68,6 +68,7 @@ model Message {
   expiresAt      DateTime? // disappearing messages: hidden + swept once past
   scheduledFor   DateTime? // future-dated send; not delivered to others until due
   deliveredAt    DateTime? // when a scheduled message was actually released
+  pinnedAt       DateTime? // set when a member pins this message to the top
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
   attachments    Attachment[]
