@@ -30,3 +30,5 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL # https://pulsemeet.onrender.com (after first deploy)
         sync: false
+      - key: ANTHROPIC_API_KEY # optional — Claude AI "Catch Me Up" & Smart Replies (free local fallback if unset)
+        sync: false
