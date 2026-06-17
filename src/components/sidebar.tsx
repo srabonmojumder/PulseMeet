@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -38,12 +38,91 @@ export function Sidebar({
   currentUserId: string;
 }) {
   const params = useParams<{ conversationId?: string }>();
+  const router = useRouter();
   const activeId = params?.conversationId;
-  const { onlineUsers } = useRealtime();
+  const { onlineUsers, socket } = useRealtime();
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState("");
 
-  const filtered = conversations.filter((c) => {
+  // Live overlay: most-recent message per conversation, layered on top of the
+  // server-rendered list so a new message bumps the chat to the top without a
+  // full reload. `unread` flags chats with messages you haven't opened yet.
+  const [overlay, setOverlay] = useState<
+    Map<string, { content: string; createdAt: string; senderId: string }>
+  >(new Map());
+  const [unread, setUnread] = useState<Set<string>>(new Set());
+
+  // Refs so the socket handler (registered once) reads the latest values without
+  // re-subscribing on every navigation. Updated in effects, not during render.
+  const activeIdRef = useRef(activeId);
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+  useEffect(() => {
+    knownIdsRef.current = new Set(conversations.map((c) => c.id));
+  }, [conversations]);
+
+  // A new message anywhere lands here (via each member's personal room).
+  useEffect(() => {
+    if (!socket) return;
+    function onActivity(data: {
+      conversationId: string;
+      senderId: string;
+      preview: string;
+      hasAttachment: boolean;
+      createdAt: string;
+    }) {
+      const { conversationId, senderId, preview, hasAttachment, createdAt } = data;
+      // A chat that isn't in our list yet (e.g. someone just started a new one):
+      // pull a fresh server list so it appears.
+      if (!knownIdsRef.current.has(conversationId)) {
+        router.refresh();
+        return;
+      }
+      setOverlay((prev) => {
+        const next = new Map(prev);
+        next.set(conversationId, {
+          content: hasAttachment && !preview ? "" : preview,
+          createdAt,
+          senderId,
+        });
+        return next;
+      });
+      // Flag unread unless it's my own message or I'm already viewing the chat.
+      if (senderId !== currentUserId && conversationId !== activeIdRef.current) {
+        setUnread((prev) => (prev.has(conversationId) ? prev : new Set(prev).add(conversationId)));
+      }
+    }
+    socket.on("conversation:activity", onActivity);
+    return () => {
+      socket.off("conversation:activity", onActivity);
+    };
+  }, [socket, currentUserId, router]);
+
+  // Clear a chat's unread flag when you open it (fired on the row click below).
+  const markRead = (id: string) =>
+    setUnread((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+  // Merge the live overlay in, then float chats with newer activity to the top.
+  // Array.sort is stable, so chats without live activity keep the server order.
+  const bumpTs = (id: string) => {
+    const ov = overlay.get(id);
+    return ov ? new Date(ov.createdAt).getTime() : 0;
+  };
+  const ordered = conversations
+    .map((c) => {
+      const ov = overlay.get(c.id);
+      return ov ? { ...c, lastMessage: ov } : c;
+    })
+    .sort((a, b) => bumpTs(b.id) - bumpTs(a.id));
+
+  const filtered = ordered.filter((c) => {
     const title = c.otherUser?.name ?? c.name ?? "";
     return title.toLowerCase().includes(filter.toLowerCase());
   });
@@ -87,6 +166,8 @@ export function Sidebar({
           const title = isGroup ? c.name ?? "Group" : c.otherUser?.name ?? "Conversation";
           const online = !isGroup && c.otherUser ? onlineUsers.has(c.otherUser.id) : false;
           const isActive = c.id === activeId;
+          // The chat you're viewing is never "unread".
+          const isUnread = unread.has(c.id) && !isActive;
           const isAttachmentOnly = !!c.lastMessage && !c.lastMessage.content;
           const prefix = c.lastMessage?.senderId === currentUserId ? "You: " : "";
           const preview = !c.lastMessage
@@ -100,6 +181,7 @@ export function Sidebar({
             <Link
               key={c.id}
               href={`/chat/${c.id}`}
+              onClick={() => markRead(c.id)}
               className={`mb-0.5 flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition ${
                 isActive ? "bg-white/10" : "hover:bg-white/5"
               }`}
@@ -110,12 +192,26 @@ export function Sidebar({
                 <Avatar name={title} image={c.otherUser?.image} online={online} />
               )}
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-white">{title}</div>
-                <div className="flex items-center gap-1 truncate text-xs text-white/40">
+                <div
+                  className={`truncate text-sm text-white ${isUnread ? "font-semibold" : "font-medium"}`}
+                >
+                  {title}
+                </div>
+                <div
+                  className={`flex items-center gap-1 truncate text-xs ${
+                    isUnread ? "text-white/75" : "text-white/40"
+                  }`}
+                >
                   {isAttachmentOnly && <Paperclip size={12} className="shrink-0" />}
                   <span className="truncate">{preview}</span>
                 </div>
               </div>
+              {isUnread && (
+                <span
+                  title="New message"
+                  className="brand-gradient ml-1 h-2.5 w-2.5 shrink-0 rounded-full shadow-sm shadow-indigo-500/50"
+                />
+              )}
             </Link>
           );
         })}

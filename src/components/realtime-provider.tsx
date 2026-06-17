@@ -11,6 +11,7 @@ import {
 import { io, type Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { Phone, Video, PhoneCall, PhoneOff } from "lucide-react";
+import { createRingtone } from "@/lib/ringtone";
 import type {
   CallInvite,
   ClientToServerEvents,
@@ -51,6 +52,26 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [incomingCall, setIncomingCall] = useState<CallInvite | null>(null);
+  const ringtoneRef = useRef<ReturnType<typeof createRingtone> | null>(null);
+
+  // Build the ringtone once on mount (it touches `window`, so not during render).
+  useEffect(() => {
+    ringtoneRef.current = createRingtone();
+    return () => ringtoneRef.current?.stop();
+  }, []);
+
+  // Ring while a call is incoming; stop the moment it's answered, dismissed, or
+  // the component unmounts. Cap at 30s so a never-answered call doesn't ring on.
+  useEffect(() => {
+    const ring = ringtoneRef.current;
+    if (!ring || !incomingCall) return;
+    ring.start();
+    const stopAt = setTimeout(() => ring.stop(), 30_000);
+    return () => {
+      clearTimeout(stopAt);
+      ring.stop();
+    };
+  }, [incomingCall]);
 
   useEffect(() => {
     let active = true;

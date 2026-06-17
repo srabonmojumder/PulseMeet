@@ -7,6 +7,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   SocketData,
+  MessageDTO,
 } from "@/lib/realtime-events";
 
 type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
@@ -71,6 +72,26 @@ async function emitMessageUpdate(io: AppServer, conversationId: string, messageI
   if (m) io.to(roomFor(conversationId)).emit("message:update", toMessageDTO(m));
 }
 
+/** Nudge every member's personal room so their sidebar can reorder the
+ *  conversation to the top + flag it unread — independent of which room (if any)
+ *  they currently have open. */
+async function notifyConversationActivity(io: AppServer, conversationId: string, dto: MessageDTO) {
+  const members = await prisma.conversationMember.findMany({
+    where: { conversationId },
+    select: { userId: true },
+  });
+  const payload = {
+    conversationId,
+    senderId: dto.sender.id,
+    preview: dto.content,
+    hasAttachment: dto.attachments.length > 0,
+    createdAt: dto.createdAt,
+  };
+  for (const { userId } of members) {
+    io.to(userRoom(userId)).emit("conversation:activity", payload);
+  }
+}
+
 // Releases scheduled messages once their send time arrives, then broadcasts them
 // like any normal message. Runs once per server process.
 let sweeperStarted = false;
@@ -90,7 +111,9 @@ function startScheduledSweeper(io: AppServer) {
           where: { id: m.conversationId },
           data: { updatedAt: new Date() },
         });
-        io.to(roomFor(m.conversationId)).emit("message:new", toMessageDTO(m));
+        const dto = toMessageDTO(m);
+        io.to(roomFor(m.conversationId)).emit("message:new", dto);
+        await notifyConversationActivity(io, m.conversationId, dto);
       }
     } catch (err) {
       console.error("scheduled-message sweeper error:", err);
@@ -252,6 +275,7 @@ export function attachRealtime(io: AppServer) {
         data: { updatedAt: new Date() },
       });
       io.to(roomFor(conversationId)).emit("message:new", dto);
+      await notifyConversationActivity(io, conversationId, dto);
       ack?.({ ok: true, message: dto });
     });
 

@@ -57,6 +57,16 @@ export interface ServerToClientEvents {
   "message:new": (message: MessageDTO) => void;
   /** A message changed — edited, deleted, or its reactions updated. Replace by id. */
   "message:update": (message: MessageDTO) => void;
+  /** Lightweight nudge delivered to every member's personal room so the sidebar
+   *  can move the conversation to the top + flag it unread, even when the member
+   *  isn't currently viewing that conversation. */
+  "conversation:activity": (data: {
+    conversationId: string;
+    senderId: string;
+    preview: string;
+    hasAttachment: boolean;
+    createdAt: string;
+  }) => void;
   /** Read receipt: this member has read the conversation up to `at`. */
   "read": (data: { conversationId: string; userId: string; name: string; at: string }) => void;
   "typing": (data: {
