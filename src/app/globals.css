@@ -27,6 +27,36 @@ body {
   height: 100%;
 }
 
+html {
+  /* Stop iOS from inflating text in landscape, and kill the grey tap flash. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile / touch affordances
+--------------------------------------------------------------------------- */
+
+/* Touch devices have no hover, so the message hover-actions (react/reply/edit/
+   delete) would be permanently invisible. Reveal them whenever the primary
+   pointer can't hover. */
+@media (hover: none) {
+  .pm-actions {
+    opacity: 1;
+  }
+}
+
+/* iOS Safari auto-zooms when a focused input's font-size is < 16px. Bump form
+   controls to 16px on phones to keep focus from yanking the viewport. */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 body {
   color: #e7e7f0;
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
@@ -55,6 +85,16 @@ body {
   background: var(--panel);
   border: 1px solid var(--hairline);
   backdrop-filter: blur(12px);
+}
+
+/* backdrop-filter is a heavy per-composite cost on phone GPUs (and we stack
+   several glass panels). Drop the blur on small screens and lean on a more
+   opaque panel so the look holds without the jank. */
+@media (max-width: 640px) {
+  .glass {
+    backdrop-filter: none;
+    background: rgba(18, 18, 29, 0.72);
+  }
 }
 
 /* Custom scrollbars */

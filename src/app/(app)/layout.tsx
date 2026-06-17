@@ -20,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <RealtimeProvider>
-      <div className="flex h-screen flex-col">
+      <div className="flex h-[100dvh] flex-col">
         <TopBar
           name={session.user.name ?? "User"}
           email={session.user.email ?? ""}

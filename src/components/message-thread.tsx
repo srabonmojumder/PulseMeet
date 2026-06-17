@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -296,6 +296,12 @@ export function MessageThread({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Whether the reader is parked at the bottom. Updated only on real scroll
+  // events, so appending a message (which grows scrollHeight without firing a
+  // scroll) preserves the pre-append answer — we auto-follow only if they were
+  // already at the bottom, and never yank them down while reading history.
+  const pinnedRef = useRef(true);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef("");
@@ -309,6 +315,8 @@ export function MessageThread({
   const [editing, setEditing] = useState<{ id: string } | null>(null);
   const [expireSeconds, setExpireSeconds] = useState(0);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+  const emojiMenuRef = useRef<HTMLDivElement>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [peerReadAt, setPeerReadAt] = useState<number>(() => latestRead(initialReads));
   const [nowMs, setNowMs] = useState(() => Date.now()); // ticks while messages are expiring
@@ -338,6 +346,26 @@ export function MessageThread({
   const peerHere = otherUserId ? peerActive.has(otherUserId) : false;
   const groupHereCount = peerActive.size;
 
+  // Close the attach / emoji popovers on an outside click. We deliberately do
+  // NOT use onMouseLeave: the native datetime-local picker renders in its own
+  // layer outside the menu, so a mouseleave-to-close dismisses the menu the
+  // instant the cursor reaches for a time. A native picker doesn't emit a
+  // page-level mousedown, so this keeps the menu open while you set the time.
+  useEffect(() => {
+    if (!showAttachMenu && !showEmoji) return;
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (showAttachMenu && attachMenuRef.current && !attachMenuRef.current.contains(t)) {
+        setShowAttachMenu(false);
+      }
+      if (showEmoji && emojiMenuRef.current && !emojiMenuRef.current.contains(t)) {
+        setShowEmoji(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showAttachMenu, showEmoji]);
+
   function spawnFly(emoji: string) {
     const id = `${flyId.current++}`;
     const left = 8 + Math.random() * 78; // % from left
@@ -350,12 +378,17 @@ export function MessageThread({
     spawnFly(emoji);
   }
 
-  function togglePin(m: MessageDTO) {
-    socket?.emit("message:pin", { messageId: m.id, pinned: !m.pinnedAt }, (res) => {
-      if (!res.ok) alert(res.error ?? "Couldn't pin the message");
-    });
-    setPickerFor(null);
-  }
+  // Row callbacks are memoized so each memo'd MessageRow keeps stable props and
+  // skips re-rendering while you type in the composer.
+  const togglePin = useCallback(
+    (m: MessageDTO) => {
+      socket?.emit("message:pin", { messageId: m.id, pinned: !m.pinnedAt }, (res) => {
+        if (!res.ok) alert(res.error ?? "Couldn't pin the message");
+      });
+      setPickerFor(null);
+    },
+    [socket],
+  );
 
   const markRead = useCallback(() => {
     socket?.emit("read", { conversationId });
@@ -464,10 +497,17 @@ export function MessageThread({
     return () => clearInterval(id);
   }, [hasExpiring]);
 
-  // Auto-scroll to the newest message (and as the live preview grows).
+  // Follow new messages / the typing indicator — but only when the reader is
+  // already at the bottom, and smoothly.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, peerTyping, livePreview]);
+    if (pinnedRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, peerTyping]);
+
+  // The peer's live draft updates many times a second; nudge instantly (no
+  // animation) so we don't stack overlapping smooth scrolls and jank the UI.
+  useEffect(() => {
+    if (livePreview && pinnedRef.current) bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [livePreview]);
 
   // Restore the document title + mark read when the tab regains focus.
   useEffect(() => {
@@ -540,21 +580,21 @@ export function MessageThread({
     return out;
   }
 
-  function startReply(m: MessageDTO) {
+  const startReply = useCallback((m: MessageDTO) => {
     setEditing(null);
     setReplyingTo(m);
     setPickerFor(null);
     textareaRef.current?.focus();
-  }
+  }, []);
 
-  function startEdit(m: MessageDTO) {
+  const startEdit = useCallback((m: MessageDTO) => {
     setReplyingTo(null);
     setEditing({ id: m.id });
     setInput(m.content);
     draftRef.current = m.content;
     setPickerFor(null);
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }
+  }, []);
 
   function cancelEdit() {
     setEditing(null);
@@ -572,27 +612,38 @@ export function MessageThread({
     cancelEdit();
   }
 
-  function deleteMessage(id: string) {
-    if (!socket) return;
-    if (!confirm("Delete this message for everyone?")) return;
-    socket.emit("message:delete", { messageId: id }, (res) => {
-      if (!res.ok) alert(res.error ?? "Delete failed");
-    });
-  }
+  const deleteMessage = useCallback(
+    (id: string) => {
+      if (!socket) return;
+      if (!confirm("Delete this message for everyone?")) return;
+      socket.emit("message:delete", { messageId: id }, (res) => {
+        if (!res.ok) alert(res.error ?? "Delete failed");
+      });
+    },
+    [socket],
+  );
 
-  function toggleReaction(messageId: string, emoji: string) {
-    socket?.emit("reaction:toggle", { messageId, emoji });
-    setPickerFor(null);
-  }
+  const toggleReaction = useCallback(
+    (messageId: string, emoji: string) => {
+      socket?.emit("reaction:toggle", { messageId, emoji });
+      setPickerFor(null);
+    },
+    [socket],
+  );
 
-  function scrollToMessage(id: string) {
+  const togglePicker = useCallback(
+    (id: string) => setPickerFor((p) => (p === id ? null : id)),
+    [],
+  );
+
+  const scrollToMessage = useCallback((id: string) => {
     const el = document.getElementById(`msg-${id}`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.classList.add("pm-flash");
       setTimeout(() => el.classList.remove("pm-flash"), 1200);
     }
-  }
+  }, []);
 
   async function send(e: React.SyntheticEvent) {
     e.preventDefault();
@@ -785,8 +836,8 @@ export function MessageThread({
       </div>
 
       {/* Header */}
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/5 px-4 sm:px-5">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3 sm:gap-3 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Link
             href="/chat"
             className="-ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/5 hover:text-white sm:hidden"
@@ -831,14 +882,14 @@ export function MessageThread({
           </div>
         </div>
         {/* Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             onClick={() => {
               setSearchOpen((s) => !s);
               setSearchQuery("");
             }}
             title="Search messages"
-            className={`flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 transition hover:bg-white/5 hover:text-white ${
+            className={`flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 transition hover:bg-white/5 hover:text-white sm:h-9 sm:w-9 ${
               searchOpen ? "bg-white/10 text-white" : "text-white/70"
             }`}
           >
@@ -848,7 +899,7 @@ export function MessageThread({
             onClick={runCatchup}
             disabled={!connected}
             title="Catch me up (AI summary)"
-            className="flex h-9 items-center gap-1.5 rounded-xl border border-white/10 px-2.5 text-xs font-medium text-white/70 transition hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-300 disabled:opacity-40"
+            className="flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2 text-xs font-medium text-white/70 transition hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-300 disabled:opacity-40 sm:h-9 sm:px-2.5"
           >
             <Sparkles size={15} />
             <span className="hidden sm:inline">Catch me up</span>
@@ -857,7 +908,7 @@ export function MessageThread({
             onClick={() => sendReaction("💜")}
             disabled={!connected}
             title="Send a live pulse 💜"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-pink-500/40 hover:bg-pink-500/10 hover:text-pink-400 disabled:opacity-40"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-pink-500/40 hover:bg-pink-500/10 hover:text-pink-400 disabled:opacity-40 sm:h-9 sm:w-9"
           >
             <Heart size={17} />
           </button>
@@ -865,7 +916,7 @@ export function MessageThread({
             onClick={() => startCall(false)}
             disabled={!connected}
             title="Start voice call"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40 sm:h-9 sm:w-9"
           >
             <Phone size={17} />
           </button>
@@ -873,7 +924,7 @@ export function MessageThread({
             onClick={() => startCall(true)}
             disabled={!connected}
             title="Start video call"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-indigo-500/40 hover:bg-indigo-500/10 hover:text-indigo-400 disabled:opacity-40"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-indigo-500/40 hover:bg-indigo-500/10 hover:text-indigo-400 disabled:opacity-40 sm:h-9 sm:w-9"
           >
             <Video size={17} />
           </button>
@@ -989,213 +1040,42 @@ export function MessageThread({
       )}
 
       {/* Messages */}
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4 sm:px-6">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        }}
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4 sm:px-6"
+      >
         {visibleMessages.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-16 text-center">
             <MessageCircle size={32} className="text-white/20" />
             <p className="text-sm text-white/40">No messages yet. Say hello! 👋</p>
           </div>
         )}
-        {visibleMessages.map((m, i) => {
-          const mine = m.sender.id === currentUserId;
-          const prev = visibleMessages[i - 1];
-          const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
-          const grouped = prev && prev.sender.id === m.sender.id && !showDay && !m.replyTo;
-          const deleted = Boolean(m.deletedAt);
-          const groupedReactions = groupReactions(m.reactions, currentUserId);
-          const showSeen = !isGroup && mine && m.id === lastMineId && peerReadAt >= new Date(m.createdAt).getTime();
-          const scheduled = Boolean(m.scheduledFor && new Date(m.scheduledFor).getTime() > nowMs);
-          const isActiveMatch = m.id === activeMatchId;
-
-          return (
-            <div key={m.id} id={`msg-${m.id}`} className="pm-msg">
-              {showDay && (
-                <div className="my-3 flex justify-center">
-                  <span
-                    suppressHydrationWarning
-                    className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-white/40"
-                  >
-                    {dayLabel(m.createdAt)}
-                  </span>
-                </div>
-              )}
-              <div
-                className={`group flex items-center gap-1.5 ${mine ? "justify-end" : "justify-start"} ${
-                  grouped ? "mt-0.5" : "mt-3"
-                }`}
-              >
-                {/* Hover actions (left of my bubbles) */}
-                {mine && !deleted && (
-                  <MessageActions
-                    mine
-                    pinned={Boolean(m.pinnedAt)}
-                    pickerOpen={pickerFor === m.id}
-                    onTogglePicker={() => setPickerFor((p) => (p === m.id ? null : m.id))}
-                    onReact={(emoji) => toggleReaction(m.id, emoji)}
-                    onReply={() => startReply(m)}
-                    onPin={() => togglePin(m)}
-                    onEdit={() => startEdit(m)}
-                    onDelete={() => deleteMessage(m.id)}
-                  />
-                )}
-
-                <div className="flex max-w-[78%] flex-col sm:max-w-[68%]">
-                  <div
-                    className={`px-4 py-2 text-sm shadow-sm ${isActiveMatch ? "ring-2 ring-amber-300/70 " : ""}${
-                      deleted
-                        ? "rounded-2xl border border-white/10 bg-white/[0.03] italic text-white/40"
-                        : mine
-                          ? "brand-gradient rounded-2xl rounded-br-md text-white"
-                          : "rounded-2xl rounded-bl-md border border-white/10 bg-white/[0.06] text-slate-100"
-                    }`}
-                  >
-                    {!mine && !grouped && !deleted && (
-                      <div className="mb-0.5 text-xs font-semibold text-indigo-300">{m.sender.name}</div>
-                    )}
-
-                    {/* Quoted reply */}
-                    {m.replyTo && !deleted && (
-                      <button
-                        type="button"
-                        onClick={() => scrollToMessage(m.replyTo!.id)}
-                        className={`mb-1.5 block w-full rounded-lg border-l-2 px-2 py-1 text-left text-xs ${
-                          mine
-                            ? "border-white/50 bg-white/10 text-white/80"
-                            : "border-indigo-400/60 bg-indigo-400/10 text-white/70"
-                        }`}
-                      >
-                        <span className="block font-semibold">{m.replyTo.senderName}</span>
-                        <span className="line-clamp-2 opacity-80">
-                          {m.replyTo.content || (m.replyTo.hasAttachments ? "📎 Attachment" : "Message")}
-                        </span>
-                      </button>
-                    )}
-
-                    {deleted ? (
-                      <span>🚫 This message was deleted</span>
-                    ) : (
-                      <>
-                        {m.content && (
-                          <div className="whitespace-pre-wrap break-words">
-                            {renderText(m.content, searchOpen && trimmedQuery ? searchQuery : undefined)}
-                          </div>
-                        )}
-                        {m.attachments.length > 0 && (
-                          <div className="mt-1.5 space-y-1.5">
-                            {m.attachments.map((a) =>
-                              isImage(a.contentType) ? (
-                                <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="block">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={a.url}
-                                    alt={a.name}
-                                    className="max-h-64 rounded-xl border border-white/10"
-                                  />
-                                </a>
-                              ) : isAudio(a.contentType) ? (
-                                <div
-                                  key={a.url}
-                                  className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
-                                    mine ? "bg-white/15" : "bg-white/[0.06]"
-                                  }`}
-                                >
-                                  <Mic size={16} className="shrink-0 opacity-80" />
-                                  <audio src={a.url} controls className="h-8 max-w-[200px]" />
-                                </div>
-                              ) : (
-                                <a
-                                  key={a.url}
-                                  href={a.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  download={a.name}
-                                  className={`group/att flex items-center gap-3 rounded-xl px-3 py-2 ${
-                                    mine ? "bg-white/15" : "bg-white/[0.06]"
-                                  }`}
-                                >
-                                  <FileText size={20} className="shrink-0 opacity-80" />
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-sm font-medium">{a.name}</span>
-                                    <span className="block text-[11px] opacity-70">{formatBytes(a.size)}</span>
-                                  </span>
-                                  <Download size={16} className="shrink-0 opacity-50 transition group-hover/att:opacity-100" />
-                                </a>
-                              ),
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    <div
-                      suppressHydrationWarning
-                      className={`mt-1 flex items-center justify-end gap-1.5 text-[10px] ${
-                        mine ? "text-white/70" : "text-white/35"
-                      }`}
-                    >
-                      {scheduled && (
-                        <span className="flex items-center gap-0.5 rounded-full bg-black/20 px-1.5 py-0.5">
-                          <CalendarClock size={9} /> Scheduled · {formatTime(m.scheduledFor!)}
-                        </span>
-                      )}
-                      {m.pinnedAt && !deleted && <Pin size={9} className="-rotate-45 opacity-70" />}
-                      {m.expiresAt && !deleted && (
-                        <span className="flex items-center gap-0.5 rounded-full bg-black/20 px-1.5 py-0.5">
-                          <Clock size={9} /> {remainingLabel(m.expiresAt, nowMs)}
-                        </span>
-                      )}
-                      {m.editedAt && !deleted && <span className="opacity-70">edited</span>}
-                      {formatTime(m.createdAt)}
-                    </div>
-                  </div>
-
-                  {/* Reaction chips */}
-                  {groupedReactions.length > 0 && (
-                    <div className={`mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : "justify-start"}`}>
-                      {groupedReactions.map((g) => (
-                        <button
-                          key={g.emoji}
-                          type="button"
-                          title={g.names.join(", ")}
-                          onClick={() => toggleReaction(m.id, g.emoji)}
-                          className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition ${
-                            g.mine
-                              ? "border-indigo-400/60 bg-indigo-500/20 text-white"
-                              : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
-                          }`}
-                        >
-                          <span>{g.emoji}</span>
-                          <span className="text-[10px] tabular-nums">{g.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {showSeen && (
-                    <div className="mt-0.5 flex justify-end pr-0.5 text-[10px] text-indigo-300/80">
-                      <span className="flex items-center gap-0.5">
-                        <Check size={11} /> Seen
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Hover actions (right of others' bubbles) */}
-                {!mine && !deleted && (
-                  <MessageActions
-                    mine={false}
-                    pinned={Boolean(m.pinnedAt)}
-                    pickerOpen={pickerFor === m.id}
-                    onTogglePicker={() => setPickerFor((p) => (p === m.id ? null : m.id))}
-                    onReact={(emoji) => toggleReaction(m.id, emoji)}
-                    onReply={() => startReply(m)}
-                    onPin={() => togglePin(m)}
-                  />
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {visibleMessages.map((m, i) => (
+          <MessageRow
+            key={m.id}
+            m={m}
+            prev={visibleMessages[i - 1]}
+            currentUserId={currentUserId}
+            isGroup={isGroup}
+            lastMineId={lastMineId}
+            peerReadAt={peerReadAt}
+            nowMs={nowMs}
+            activeMatchId={activeMatchId}
+            pickerOpen={pickerFor === m.id}
+            searchHighlight={searchOpen && trimmedQuery ? searchQuery : undefined}
+            onTogglePicker={togglePicker}
+            onReact={toggleReaction}
+            onReply={startReply}
+            onPin={togglePin}
+            onEdit={startEdit}
+            onDelete={deleteMessage}
+            onJumpTo={scrollToMessage}
+          />
+        ))}
 
         {/* PulseMeet Live Typing — see the peer's draft in real time */}
         {livePreview ? (
@@ -1225,7 +1105,10 @@ export function MessageThread({
       </div>
 
       {/* Composer */}
-      <form onSubmit={send} className="shrink-0 border-t border-white/5 px-3 py-3 sm:px-4">
+      <form
+        onSubmit={send}
+        className="shrink-0 border-t border-white/5 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4"
+      >
         {/* Smart replies */}
         {suggest.open && (
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -1400,7 +1283,7 @@ export function MessageThread({
             />
 
             {/* Attach & options menu (paperclip opens a popup) */}
-            <div className="relative shrink-0">
+            <div className="relative shrink-0" ref={attachMenuRef}>
               <button
                 type="button"
                 onClick={() => setShowAttachMenu((s) => !s)}
@@ -1415,10 +1298,7 @@ export function MessageThread({
                 <Paperclip size={19} />
               </button>
               {showAttachMenu && (
-                <div
-                  className="pm-rise absolute bottom-12 left-0 z-50 w-60 rounded-2xl border border-white/10 bg-[#15151f] p-1.5 shadow-2xl"
-                  onMouseLeave={() => setShowAttachMenu(false)}
-                >
+                <div className="pm-rise absolute bottom-12 left-0 z-50 w-60 rounded-2xl border border-white/10 bg-[#15151f] p-1.5 shadow-2xl">
                   <button
                     type="button"
                     onClick={() => {
@@ -1513,7 +1393,7 @@ export function MessageThread({
             </div>
 
             {/* Emoji picker */}
-            <div className="relative shrink-0">
+            <div className="relative shrink-0" ref={emojiMenuRef}>
               <button
                 type="button"
                 onClick={() => setShowEmoji((s) => !s)}
@@ -1524,10 +1404,7 @@ export function MessageThread({
                 <Smile size={19} />
               </button>
               {showEmoji && (
-                <div
-                  className="pm-rise absolute bottom-12 left-0 z-50 grid w-64 grid-cols-8 gap-1 rounded-2xl border border-white/10 bg-[#15151f] p-2 shadow-2xl"
-                  onMouseLeave={() => setShowEmoji(false)}
-                >
+                <div className="pm-rise absolute bottom-12 left-0 z-50 grid w-64 grid-cols-8 gap-1 rounded-2xl border border-white/10 bg-[#15151f] p-2 shadow-2xl">
                   {QUICK_EMOJI.map((e) => (
                     <button
                       key={e}
@@ -1588,6 +1465,245 @@ export function MessageThread({
   );
 }
 
+// One message row — memoized so typing in the composer (which re-renders the
+// parent) doesn't re-render every bubble. Only rows whose props actually change
+// re-render; the parent's row callbacks are useCallback-stable to keep it so.
+const MessageRow = memo(function MessageRow({
+  m,
+  prev,
+  currentUserId,
+  isGroup,
+  lastMineId,
+  peerReadAt,
+  nowMs,
+  activeMatchId,
+  pickerOpen,
+  searchHighlight,
+  onTogglePicker,
+  onReact,
+  onReply,
+  onPin,
+  onEdit,
+  onDelete,
+  onJumpTo,
+}: {
+  m: MessageDTO;
+  prev: MessageDTO | undefined;
+  currentUserId: string;
+  isGroup: boolean;
+  lastMineId: string | undefined;
+  peerReadAt: number;
+  nowMs: number;
+  activeMatchId: string | undefined;
+  pickerOpen: boolean;
+  searchHighlight: string | undefined;
+  onTogglePicker: (id: string) => void;
+  onReact: (id: string, emoji: string) => void;
+  onReply: (m: MessageDTO) => void;
+  onPin: (m: MessageDTO) => void;
+  onEdit: (m: MessageDTO) => void;
+  onDelete: (id: string) => void;
+  onJumpTo: (id: string) => void;
+}) {
+  const mine = m.sender.id === currentUserId;
+  const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
+  const grouped = prev && prev.sender.id === m.sender.id && !showDay && !m.replyTo;
+  const deleted = Boolean(m.deletedAt);
+  const groupedReactions = groupReactions(m.reactions, currentUserId);
+  const showSeen = !isGroup && mine && m.id === lastMineId && peerReadAt >= new Date(m.createdAt).getTime();
+  const scheduled = Boolean(m.scheduledFor && new Date(m.scheduledFor).getTime() > nowMs);
+  const isActiveMatch = m.id === activeMatchId;
+
+  return (
+    <div id={`msg-${m.id}`} className="pm-msg">
+      {showDay && (
+        <div className="my-3 flex justify-center">
+          <span
+            suppressHydrationWarning
+            className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-white/40"
+          >
+            {dayLabel(m.createdAt)}
+          </span>
+        </div>
+      )}
+      <div
+        className={`group flex items-center gap-1.5 ${mine ? "justify-end" : "justify-start"} ${
+          grouped ? "mt-0.5" : "mt-3"
+        }`}
+      >
+        {/* Hover actions (left of my bubbles) */}
+        {mine && !deleted && (
+          <MessageActions
+            mine
+            pinned={Boolean(m.pinnedAt)}
+            pickerOpen={pickerOpen}
+            onTogglePicker={() => onTogglePicker(m.id)}
+            onReact={(emoji) => onReact(m.id, emoji)}
+            onReply={() => onReply(m)}
+            onPin={() => onPin(m)}
+            onEdit={() => onEdit(m)}
+            onDelete={() => onDelete(m.id)}
+          />
+        )}
+
+        <div className="flex min-w-0 max-w-[78%] flex-col sm:max-w-[68%]">
+          <div
+            className={`px-4 py-2 text-sm shadow-sm ${isActiveMatch ? "ring-2 ring-amber-300/70 " : ""}${
+              deleted
+                ? "rounded-2xl border border-white/10 bg-white/[0.03] italic text-white/40"
+                : mine
+                  ? "brand-gradient rounded-2xl rounded-br-md text-white"
+                  : "rounded-2xl rounded-bl-md border border-white/10 bg-white/[0.06] text-slate-100"
+            }`}
+          >
+            {!mine && !grouped && !deleted && (
+              <div className="mb-0.5 text-xs font-semibold text-indigo-300">{m.sender.name}</div>
+            )}
+
+            {/* Quoted reply */}
+            {m.replyTo && !deleted && (
+              <button
+                type="button"
+                onClick={() => onJumpTo(m.replyTo!.id)}
+                className={`mb-1.5 block w-full rounded-lg border-l-2 px-2 py-1 text-left text-xs ${
+                  mine
+                    ? "border-white/50 bg-white/10 text-white/80"
+                    : "border-indigo-400/60 bg-indigo-400/10 text-white/70"
+                }`}
+              >
+                <span className="block font-semibold">{m.replyTo.senderName}</span>
+                <span className="line-clamp-2 opacity-80">
+                  {m.replyTo.content || (m.replyTo.hasAttachments ? "📎 Attachment" : "Message")}
+                </span>
+              </button>
+            )}
+
+            {deleted ? (
+              <span>🚫 This message was deleted</span>
+            ) : (
+              <>
+                {m.content && (
+                  <div className="whitespace-pre-wrap break-words">
+                    {renderText(m.content, searchHighlight)}
+                  </div>
+                )}
+                {m.attachments.length > 0 && (
+                  <div className="mt-1.5 space-y-1.5">
+                    {m.attachments.map((a) =>
+                      isImage(a.contentType) ? (
+                        <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="block">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={a.url}
+                            alt={a.name}
+                            className="max-h-64 max-w-full rounded-xl border border-white/10"
+                          />
+                        </a>
+                      ) : isAudio(a.contentType) ? (
+                        <div
+                          key={a.url}
+                          className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
+                            mine ? "bg-white/15" : "bg-white/[0.06]"
+                          }`}
+                        >
+                          <Mic size={16} className="shrink-0 opacity-80" />
+                          <audio src={a.url} controls className="h-8 max-w-[200px]" />
+                        </div>
+                      ) : (
+                        <a
+                          key={a.url}
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          download={a.name}
+                          className={`group/att flex items-center gap-3 rounded-xl px-3 py-2 ${
+                            mine ? "bg-white/15" : "bg-white/[0.06]"
+                          }`}
+                        >
+                          <FileText size={20} className="shrink-0 opacity-80" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium">{a.name}</span>
+                            <span className="block text-[11px] opacity-70">{formatBytes(a.size)}</span>
+                          </span>
+                          <Download size={16} className="shrink-0 opacity-50 transition group-hover/att:opacity-100" />
+                        </a>
+                      ),
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            <div
+              suppressHydrationWarning
+              className={`mt-1 flex items-center justify-end gap-1.5 text-[10px] ${
+                mine ? "text-white/70" : "text-white/35"
+              }`}
+            >
+              {scheduled && (
+                <span className="flex items-center gap-0.5 rounded-full bg-black/20 px-1.5 py-0.5">
+                  <CalendarClock size={9} /> Scheduled · {formatTime(m.scheduledFor!)}
+                </span>
+              )}
+              {m.pinnedAt && !deleted && <Pin size={9} className="-rotate-45 opacity-70" />}
+              {m.expiresAt && !deleted && (
+                <span className="flex items-center gap-0.5 rounded-full bg-black/20 px-1.5 py-0.5">
+                  <Clock size={9} /> {remainingLabel(m.expiresAt, nowMs)}
+                </span>
+              )}
+              {m.editedAt && !deleted && <span className="opacity-70">edited</span>}
+              {formatTime(m.createdAt)}
+            </div>
+          </div>
+
+          {/* Reaction chips */}
+          {groupedReactions.length > 0 && (
+            <div className={`mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : "justify-start"}`}>
+              {groupedReactions.map((g) => (
+                <button
+                  key={g.emoji}
+                  type="button"
+                  title={g.names.join(", ")}
+                  onClick={() => onReact(m.id, g.emoji)}
+                  className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition ${
+                    g.mine
+                      ? "border-indigo-400/60 bg-indigo-500/20 text-white"
+                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                  }`}
+                >
+                  <span>{g.emoji}</span>
+                  <span className="text-[10px] tabular-nums">{g.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {showSeen && (
+            <div className="mt-0.5 flex justify-end pr-0.5 text-[10px] text-indigo-300/80">
+              <span className="flex items-center gap-0.5">
+                <Check size={11} /> Seen
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Hover actions (right of others' bubbles) */}
+        {!mine && !deleted && (
+          <MessageActions
+            mine={false}
+            pinned={Boolean(m.pinnedAt)}
+            pickerOpen={pickerOpen}
+            onTogglePicker={() => onTogglePicker(m.id)}
+            onReact={(emoji) => onReact(m.id, emoji)}
+            onReply={() => onReply(m)}
+            onPin={() => onPin(m)}
+          />
+        )}
+      </div>
+    </div>
+  );
+});
+
 // Hover toolbar shown beside each message: react, reply, pin, and (own messages) edit/delete.
 function MessageActions({
   mine,
@@ -1612,7 +1728,7 @@ function MessageActions({
 }) {
   return (
     <div
-      className={`relative flex shrink-0 items-center gap-0.5 self-center transition ${
+      className={`pm-actions relative flex shrink-0 items-center gap-0.5 self-center transition ${
         pickerOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
       }`}
     >

@@ -73,7 +73,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {filtered.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
             <MessagesSquare size={28} className="text-white/20" />

@@ -33,7 +33,7 @@ export function TopBar({
   }, []);
 
   return (
-    <header className="glass relative z-50 flex h-16 shrink-0 items-center justify-between px-4 sm:px-5">
+    <header className="glass relative z-50 flex h-[calc(4rem+env(safe-area-inset-top))] shrink-0 items-center justify-between px-4 pt-[env(safe-area-inset-top)] sm:px-5">
       <div className="flex items-center gap-3">
         <Link href="/chat">
           <Logo size="sm" />
