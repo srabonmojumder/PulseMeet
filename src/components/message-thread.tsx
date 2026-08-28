@@ -491,7 +491,7 @@ export function MessageThread({
   // When socket is not connected (e.g. running on serverless without standalone realtime host),
   // poll messages every 3 seconds so the conversation stays up to date.
   useEffect(() => {
-    if (connected) return;
+    if (socket?.connected) return;
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/api/messages?conversationId=${encodeURIComponent(conversationId)}`);
@@ -629,7 +629,7 @@ export function MessageThread({
     if (!editing) return;
     const text = input.trim();
     if (!text) return;
-    if (socket && connected) {
+    if (socket?.connected) {
       socket.emit("message:edit", { messageId: editing.id, content: text }, (res) => {
         if (!res.ok) alert(res.error ?? "Edit failed");
       });
@@ -655,7 +655,7 @@ export function MessageThread({
   const deleteMessage = useCallback(
     (id: string) => {
       if (!confirm("Delete this message for everyone?")) return;
-      if (socket && connected) {
+      if (socket?.connected) {
         socket.emit("message:delete", { messageId: id }, (res) => {
           if (!res.ok) alert(res.error ?? "Delete failed");
         });
@@ -667,7 +667,7 @@ export function MessageThread({
           .catch(() => {});
       }
     },
-    [socket, connected],
+    [socket],
   );
 
   const toggleReaction = useCallback(
@@ -717,7 +717,7 @@ export function MessageThread({
     // Scheduled send: seconds-from-now (must be in the future).
     const scheduleSeconds = scheduleSecondsFrom(scheduleAt);
 
-    if (socket && connected) {
+    if (socket?.connected) {
       socket.emit(
         "message:send",
         {
@@ -740,7 +740,7 @@ export function MessageThread({
         },
       );
     } else {
-      // Fallback via REST API when socket server is disconnected
+      // Direct REST API send when socket is not active
       try {
         const res = await fetch("/api/messages", {
           method: "POST",
@@ -757,9 +757,10 @@ export function MessageThread({
         if (res.ok) {
           const data = await res.json();
           if (data.message) {
-            setMessages((prev) =>
-              prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message],
-            );
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === data.message.id)) return prev;
+              return [...prev, data.message];
+            });
           }
         } else {
           const err = await res.json().catch(() => ({}));
