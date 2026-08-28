@@ -739,6 +739,44 @@ export function MessageThread({
     // Scheduled send: seconds-from-now (must be in the future).
     const scheduleSeconds = scheduleSecondsFrom(scheduleAt);
 
+    // Optimistic UI update: instantly show message with 0ms delay
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const optimisticMessage: MessageDTO = {
+      id: tempId,
+      conversationId,
+      sender: { id: currentUserId, name: "Me", image: null },
+      content,
+      attachments,
+      replyTo: replyingTo
+        ? {
+            id: replyingTo.id,
+            senderName: replyingTo.sender.name,
+            content: replyingTo.content,
+            hasAttachments: replyingTo.attachments.length > 0,
+          }
+        : null,
+      reactions: [],
+      pinnedAt: null,
+      deletedAt: null,
+      editedAt: null,
+      expiresAt: expireSeconds ? new Date(Date.now() + expireSeconds * 1000).toISOString() : null,
+      scheduledFor: scheduleSeconds ? new Date(Date.now() + scheduleSeconds * 1000).toISOString() : null,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (!scheduleSeconds) {
+      setMessages((prev) => [...prev, optimisticMessage]);
+    }
+
+    stopTyping();
+    draftRef.current = "";
+    setInput("");
+    setPendingFiles([]);
+    setReplyingTo(null);
+    setScheduleAt("");
+    setSuggest((s) => ({ ...s, open: false }));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
     if (socket?.connected) {
       socket.emit(
         "message:send",
@@ -751,12 +789,12 @@ export function MessageThread({
           scheduleSeconds,
         },
         (res) => {
-          // Scheduled messages aren't broadcast yet, so add ours locally as pending.
-          if (res.ok && res.message && scheduleSeconds) {
+          if (res.ok && res.message) {
             setMessages((prev) =>
-              prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!],
+              prev.map((m) => (m.id === tempId ? res.message! : m)),
             );
           } else if (!res.ok) {
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
             alert(res.error ?? "Couldn't send the message");
           }
         },
@@ -779,25 +817,20 @@ export function MessageThread({
         if (res.ok) {
           const data = await res.json();
           if (data.message) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === data.message.id)) return prev;
-              return [...prev, data.message];
-            });
+            setMessages((prev) =>
+              prev.map((m) => (m.id === tempId ? data.message : m)),
+            );
           }
         } else {
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
           const err = await res.json().catch(() => ({}));
           alert(err.error ?? "Couldn't send the message");
         }
       } catch {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
         alert("Network error: failed to send message");
       }
     }
-    stopTyping();
-    draftRef.current = "";
-    setInput("");
-    setPendingFiles([]);
-    setReplyingTo(null);
-    setScheduleAt("");
     setSuggest((s) => ({ ...s, open: false }));
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -1797,34 +1830,34 @@ const MessageRow = memo(function MessageRow({
                     <div className="mt-2 space-y-2">
                       {/* Image Grid: 1 image or 2-column grid for multiple images */}
                       {images.length === 1 ? (
-                        <div className="overflow-hidden rounded-2xl">
+                        <div className="overflow-hidden rounded-xl">
                           <button
                             type="button"
                             onClick={() => onPreviewImage(images[0].url, images[0].name)}
-                            className="group/img relative block max-w-sm overflow-hidden rounded-2xl border border-white/15 bg-black/20 shadow-md transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
+                            className="group/img relative block max-w-[210px] overflow-hidden rounded-xl border border-white/15 bg-black/20 shadow-md transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={images[0].url}
                               alt={images[0].name}
-                              className="max-h-72 w-full object-cover rounded-2xl transition duration-300 group-hover/img:scale-[1.02]"
+                              className="max-h-48 w-full object-cover rounded-xl transition duration-300 group-hover/img:scale-[1.02]"
                               loading="lazy"
                             />
                             <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover/img:opacity-100 backdrop-blur-[2px]">
-                              <span className="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur-md">
-                                <Maximize2 size={13} /> View full image
+                              <span className="flex items-center gap-1 rounded-full bg-black/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md backdrop-blur-md">
+                                <Maximize2 size={12} /> View
                               </span>
                             </div>
                           </button>
                         </div>
                       ) : images.length > 1 ? (
-                        <div className="grid grid-cols-2 gap-1.5 sm:gap-2 max-w-sm sm:max-w-md">
+                        <div className="grid grid-cols-2 gap-1.5 max-w-[260px]">
                           {images.map((a, idx) => (
                             <button
                               key={a.url || idx}
                               type="button"
                               onClick={() => onPreviewImage(a.url, a.name)}
-                              className="group/img relative aspect-square w-full overflow-hidden rounded-xl border border-white/15 bg-black/30 shadow-md transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
+                              className="group/img relative h-28 w-full overflow-hidden rounded-xl border border-white/15 bg-black/30 shadow-md transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
@@ -1834,8 +1867,8 @@ const MessageRow = memo(function MessageRow({
                                 loading="lazy"
                               />
                               <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover/img:opacity-100 backdrop-blur-[2px]">
-                                <span className="flex items-center gap-1 rounded-full bg-black/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md backdrop-blur-md">
-                                  <Maximize2 size={12} /> Full view
+                                <span className="flex items-center gap-1 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white shadow-md backdrop-blur-md">
+                                  <Maximize2 size={11} /> View
                                 </span>
                               </div>
                             </button>
