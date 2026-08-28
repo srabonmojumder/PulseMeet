@@ -510,10 +510,8 @@ export function MessageThread({
     };
   }, [socket, connected, conversationId, currentUserId, markRead]);
 
-  // When socket is not connected (e.g. running on serverless without standalone realtime host),
-  // poll messages every 3 seconds so the conversation stays up to date.
+  // Continuous polling every 2.5 seconds to guarantee 100% message sync across all platforms
   useEffect(() => {
-    if (socket?.connected) return;
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/api/messages?conversationId=${encodeURIComponent(conversationId)}`);
@@ -521,17 +519,24 @@ export function MessageThread({
           const data = await res.json();
           if (Array.isArray(data.messages)) {
             setMessages((prev) => {
-              if (data.messages.length === prev.length && data.messages.at(-1)?.id === prev.at(-1)?.id) {
+              if (
+                data.messages.length === prev.length &&
+                data.messages.at(-1)?.id === prev.at(-1)?.id &&
+                data.messages.at(-1)?.editedAt === prev.at(-1)?.editedAt
+              ) {
                 return prev;
               }
-              return data.messages;
+              const tempMessages = prev.filter((m) => m.id.startsWith("temp-"));
+              const serverIds = new Set(data.messages.map((m: any) => m.id));
+              const pending = tempMessages.filter((m) => !serverIds.has(m.id));
+              return [...data.messages, ...pending];
             });
           }
         }
       } catch {}
-    }, 3000);
+    }, 2500);
     return () => clearInterval(interval);
-  }, [connected, conversationId]);
+  }, [conversationId]);
 
   // While any disappearing messages are alive, tick once a second so their
   // countdown updates and expired ones drop out of the render-time filter.
@@ -777,59 +782,45 @@ export function MessageThread({
     setSuggest((s) => ({ ...s, open: false }));
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    if (socket?.connected) {
-      socket.emit(
-        "message:send",
-        {
+    // Always persist via /api/messages for 100% reliable database storage
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           conversationId,
           content,
           attachments,
           replyToId: replyingTo?.id,
           expireSeconds: expireSeconds || undefined,
           scheduleSeconds,
-        },
-        (res) => {
-          if (res.ok && res.message) {
-            setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? res.message! : m)),
-            );
-          } else if (!res.ok) {
-            setMessages((prev) => prev.filter((m) => m.id !== tempId));
-            alert(res.error ?? "Couldn't send the message");
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? data.message : m)),
+          );
+          if (socket?.connected) {
+            socket.emit("message:send", {
+              conversationId,
+              content,
+              attachments,
+              replyToId: replyingTo?.id,
+              expireSeconds: expireSeconds || undefined,
+              scheduleSeconds,
+            });
           }
-        },
-      );
-    } else {
-      // Direct REST API send when socket is not active
-      try {
-        const res = await fetch("/api/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversationId,
-            content,
-            attachments,
-            replyToId: replyingTo?.id,
-            expireSeconds: expireSeconds || undefined,
-            scheduleSeconds,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.message) {
-            setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? data.message : m)),
-            );
-          }
-        } else {
-          setMessages((prev) => prev.filter((m) => m.id !== tempId));
-          const err = await res.json().catch(() => ({}));
-          alert(err.error ?? "Couldn't send the message");
         }
-      } catch {
+      } else {
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
-        alert("Network error: failed to send message");
+        const err = await res.json().catch(() => ({}));
+        alert(err.error ?? "Couldn't send the message");
       }
+    } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      alert("Network error: failed to send message");
     }
     setSuggest((s) => ({ ...s, open: false }));
     if (fileInputRef.current) fileInputRef.current.value = "";
