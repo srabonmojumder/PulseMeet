@@ -31,6 +31,7 @@ import {
   ChevronUp,
   ChevronDown,
   Maximize2,
+  ExternalLink,
 } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
@@ -40,6 +41,19 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function shortImageName(name: string): string {
+  if (!name) return "Image";
+  const clean = name.replace(/^[a-f0-9-]{32,}_/i, "").trim();
+  if (clean.length <= 22) return clean;
+  const dot = clean.lastIndexOf(".");
+  if (dot > 0 && clean.length - dot <= 5) {
+    const ext = clean.slice(dot);
+    const base = clean.slice(0, dot);
+    return `${base.slice(0, 15)}…${ext}`;
+  }
+  return `${clean.slice(0, 18)}…`;
 }
 
 function isImage(contentType?: string, url?: string, name?: string) {
@@ -1570,48 +1584,80 @@ export function MessageThread({
         )}
       </form>
 
-      {/* Image Lightbox Modal */}
+      {/* Ultra-Luxury Image Lightbox Modal */}
       {previewImage && (
         <div
-          className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-200"
+          className="fixed inset-0 z-[200] flex flex-col items-center justify-between bg-black/95 p-3 sm:p-6 backdrop-blur-2xl animate-in fade-in duration-200"
           onClick={() => setPreviewImage(null)}
         >
+          {/* Top Floating Glass Header Bar */}
           <div
-            className="flex w-full max-w-4xl items-center justify-between pb-3 text-white"
+            className="flex w-full max-w-2xl items-center justify-between rounded-2xl border border-white/15 bg-white/[0.08] px-4 py-2.5 shadow-2xl shadow-black/80 backdrop-blur-xl transition-all"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="min-w-0 flex-1 pr-4">
-              <span className="block truncate text-sm font-medium text-white/90">{previewImage.name}</span>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-300">
+                <ImageIcon size={15} />
+              </div>
+              <span className="truncate text-xs sm:text-sm font-semibold tracking-wide text-white/90">
+                {shortImageName(previewImage.name)}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <a
+                href={previewImage.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                title="Open original image"
+              >
+                <ExternalLink size={13} />
+                <span className="hidden sm:inline">Open</span>
+              </a>
               <a
                 href={previewImage.url}
                 download={previewImage.name}
-                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20"
-                title="Download image"
+                className="brand-gradient flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-white shadow-md shadow-indigo-500/25 transition hover:opacity-95"
+                title="Download original image"
               >
-                <Download size={14} /> Download
+                <Download size={13} />
+                <span className="hidden sm:inline">Download</span>
               </a>
               <button
                 type="button"
                 onClick={() => setPreviewImage(null)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/70 transition hover:border-rose-500/30 hover:bg-rose-500/15 hover:text-rose-200"
                 title="Close (Esc)"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
           </div>
+
+          {/* Center Image Container with Ambient Glow */}
           <div
-            className="relative flex max-h-[85vh] max-w-[90vw] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/50 p-1 shadow-2xl"
+            className="relative my-auto flex max-h-[76vh] max-w-[92vw] items-center justify-center"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={previewImage.url}
-              alt={previewImage.name}
-              className="max-h-[80vh] max-w-[85vw] rounded-xl object-contain select-none"
-            />
+            {/* Ambient Background Glow */}
+            <div className="absolute -inset-4 rounded-3xl bg-indigo-500/20 blur-2xl pointer-events-none" />
+
+            <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-black/60 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewImage.url}
+                alt={previewImage.name}
+                className="max-h-[72vh] max-w-[88vw] rounded-2xl object-contain select-none transition-transform duration-300 hover:scale-[1.01]"
+              />
+            </div>
+          </div>
+
+          {/* Bottom Floating Keyboard Hint */}
+          <div className="pb-1" onClick={(e) => e.stopPropagation()}>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/50 px-3.5 py-1 text-[11px] text-white/50 backdrop-blur-md">
+              Press <kbd className="rounded bg-white/10 px-1 py-0.5 font-mono text-[10px] text-white/80">Esc</kbd> or click outside to close
+            </span>
           </div>
         </div>
       )}
