@@ -488,6 +488,29 @@ export function MessageThread({
     };
   }, [socket, connected, conversationId, currentUserId, markRead]);
 
+  // When socket is not connected (e.g. running on serverless without standalone realtime host),
+  // poll messages every 3 seconds so the conversation stays up to date.
+  useEffect(() => {
+    if (connected) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/messages?conversationId=${encodeURIComponent(conversationId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.messages)) {
+            setMessages((prev) => {
+              if (data.messages.length === prev.length && data.messages.at(-1)?.id === prev.at(-1)?.id) {
+                return prev;
+              }
+              return data.messages;
+            });
+          }
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [connected, conversationId]);
+
   // While any disappearing messages are alive, tick once a second so their
   // countdown updates and expired ones drop out of the render-time filter.
   const hasExpiring = messages.some((m) => m.expiresAt);
@@ -603,24 +626,48 @@ export function MessageThread({
   }
 
   function saveEdit() {
-    if (!editing || !socket) return;
+    if (!editing) return;
     const text = input.trim();
     if (!text) return;
-    socket.emit("message:edit", { messageId: editing.id, content: text }, (res) => {
-      if (!res.ok) alert(res.error ?? "Edit failed");
-    });
+    if (socket && connected) {
+      socket.emit("message:edit", { messageId: editing.id, content: text }, (res) => {
+        if (!res.ok) alert(res.error ?? "Edit failed");
+      });
+    } else {
+      fetch("/api/messages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: editing.id, content: text }),
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            if (data.message) {
+              setMessages((prev) => prev.map((m) => (m.id === data.message.id ? data.message : m)));
+            }
+          }
+        })
+        .catch(() => {});
+    }
     cancelEdit();
   }
 
   const deleteMessage = useCallback(
     (id: string) => {
-      if (!socket) return;
       if (!confirm("Delete this message for everyone?")) return;
-      socket.emit("message:delete", { messageId: id }, (res) => {
-        if (!res.ok) alert(res.error ?? "Delete failed");
-      });
+      if (socket && connected) {
+        socket.emit("message:delete", { messageId: id }, (res) => {
+          if (!res.ok) alert(res.error ?? "Delete failed");
+        });
+      } else {
+        fetch(`/api/messages?messageId=${encodeURIComponent(id)}`, { method: "DELETE" })
+          .then(() => {
+            setMessages((prev) => prev.filter((m) => m.id !== id));
+          })
+          .catch(() => {});
+      }
     },
-    [socket],
+    [socket, connected],
   );
 
   const toggleReaction = useCallback(
@@ -652,7 +699,7 @@ export function MessageThread({
       return;
     }
     const content = input.trim();
-    if ((!content && pendingFiles.length === 0) || !socket || uploading) return;
+    if ((!content && pendingFiles.length === 0) || uploading) return;
 
     let attachments: AttachmentDTO[] = [];
     if (pendingFiles.length > 0) {
@@ -670,27 +717,58 @@ export function MessageThread({
     // Scheduled send: seconds-from-now (must be in the future).
     const scheduleSeconds = scheduleSecondsFrom(scheduleAt);
 
-    socket.emit(
-      "message:send",
-      {
-        conversationId,
-        content,
-        attachments,
-        replyToId: replyingTo?.id,
-        expireSeconds: expireSeconds || undefined,
-        scheduleSeconds,
-      },
-      (res) => {
-        // Scheduled messages aren't broadcast yet, so add ours locally as pending.
-        if (res.ok && res.message && scheduleSeconds) {
-          setMessages((prev) =>
-            prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!],
-          );
-        } else if (!res.ok) {
-          alert(res.error ?? "Couldn't send the message");
+    if (socket && connected) {
+      socket.emit(
+        "message:send",
+        {
+          conversationId,
+          content,
+          attachments,
+          replyToId: replyingTo?.id,
+          expireSeconds: expireSeconds || undefined,
+          scheduleSeconds,
+        },
+        (res) => {
+          // Scheduled messages aren't broadcast yet, so add ours locally as pending.
+          if (res.ok && res.message && scheduleSeconds) {
+            setMessages((prev) =>
+              prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!],
+            );
+          } else if (!res.ok) {
+            alert(res.error ?? "Couldn't send the message");
+          }
+        },
+      );
+    } else {
+      // Fallback via REST API when socket server is disconnected
+      try {
+        const res = await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId,
+            content,
+            attachments,
+            replyToId: replyingTo?.id,
+            expireSeconds: expireSeconds || undefined,
+            scheduleSeconds,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.message) {
+            setMessages((prev) =>
+              prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message],
+            );
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(err.error ?? "Couldn't send the message");
         }
-      },
-    );
+      } catch {
+        alert("Network error: failed to send message");
+      }
+    }
     stopTyping();
     draftRef.current = "";
     setInput("");
@@ -795,7 +873,7 @@ export function MessageThread({
     textareaRef.current?.focus();
   }
 
-  const canSend = connected && !uploading && (input.trim().length > 0 || pendingFiles.length > 0);
+  const canSend = !uploading && (input.trim().length > 0 || pendingFiles.length > 0);
   // Hide disappearing messages whose time is up (nowMs ticks them out of view).
   const visibleMessages = messages.filter(
     (m) => !m.expiresAt || new Date(m.expiresAt).getTime() > nowMs,
@@ -897,18 +975,16 @@ export function MessageThread({
           </button>
           <button
             onClick={runCatchup}
-            disabled={!connected}
             title="Catch me up (AI summary)"
-            className="flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2 text-xs font-medium text-white/70 transition hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-300 disabled:opacity-40 sm:h-9 sm:px-2.5"
+            className="flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2 text-xs font-medium text-white/70 transition hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-300 sm:h-9 sm:px-2.5"
           >
             <Sparkles size={15} />
             <span className="hidden sm:inline">Catch me up</span>
           </button>
           <button
             onClick={() => sendReaction("💜")}
-            disabled={!connected}
             title="Send a live pulse 💜"
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-pink-500/40 hover:bg-pink-500/10 hover:text-pink-400 disabled:opacity-40 sm:h-9 sm:w-9"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-white/70 transition hover:border-pink-500/40 hover:bg-pink-500/10 hover:text-pink-400 sm:h-9 sm:w-9"
           >
             <Heart size={17} />
           </button>
@@ -1287,9 +1363,8 @@ export function MessageThread({
               <button
                 type="button"
                 onClick={() => setShowAttachMenu((s) => !s)}
-                disabled={!connected}
                 title="Attach & options"
-                className={`flex h-10 w-10 items-center justify-center rounded-xl transition disabled:opacity-40 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-xl transition ${
                   showAttachMenu || expireSeconds > 0
                     ? "bg-white/10 text-white"
                     : "text-white/60 hover:bg-white/5 hover:text-white"
@@ -1397,9 +1472,8 @@ export function MessageThread({
               <button
                 type="button"
                 onClick={() => setShowEmoji((s) => !s)}
-                disabled={!connected}
                 title="Emoji"
-                className="flex h-10 w-10 items-center justify-center rounded-xl text-white/60 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-white/60 transition hover:bg-white/5 hover:text-white"
               >
                 <Smile size={19} />
               </button>
@@ -1435,14 +1509,11 @@ export function MessageThread({
                 if (e.key === "Escape" && editing) cancelEdit();
               }}
               placeholder={
-                connected
-                  ? editing
-                    ? "Edit your message…  (Enter to save, Esc to cancel)"
-                    : "Type a message…  (Enter to send, Shift+Enter for new line)"
-                  : "Connecting…"
+                editing
+                  ? "Edit your message…  (Enter to save, Esc to cancel)"
+                  : "Type a message…  (Enter to send, Shift+Enter for new line)"
               }
-              disabled={!connected}
-              className="max-h-36 flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-indigo-500/60 focus:bg-white/[0.07] disabled:opacity-50"
+              className="max-h-36 flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-indigo-500/60 focus:bg-white/[0.07]"
             />
             <button
               type="submit"
