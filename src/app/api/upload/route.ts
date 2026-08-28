@@ -22,17 +22,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File exceeds 25 MB limit" }, { status: 413 });
   }
 
+  // If Vercel Blob store token is configured, upload to Vercel Blob
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const blob = await put(file.name, file, { access: "public" });
+      return NextResponse.json({
+        url: blob.url,
+        name: file.name,
+        contentType: file.type || "application/octet-stream",
+        size: file.size,
+      });
+    } catch (err) {
+      console.error("Vercel Blob upload failed, falling back to data URL:", err);
+    }
+  }
+
+  // Seamless Base64 fallback (works for voice notes, photos, documents)
   try {
-    const blob = await put(file.name, file, { access: "public" });
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const mimeType = file.type || "application/octet-stream";
+    const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
 
     return NextResponse.json({
-      url: blob.url,
+      url: dataUrl,
       name: file.name,
-      contentType: file.type || "application/octet-stream",
+      contentType: mimeType,
       size: file.size,
     });
   } catch (err) {
-    console.error("Vercel Blob Upload Error:", err);
+    console.error("File processing error:", err);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
 }

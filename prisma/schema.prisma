@@ -97,7 +97,7 @@ model Reaction {
 model Attachment {
   id          String  @id @default(cuid())
   messageId   String
-  url         String
+  url         String  @db.LongText
   name        String
   contentType String
   size        Int

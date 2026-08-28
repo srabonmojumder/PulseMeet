@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { messageInclude, toMessageDTO, visibleMessageWhere } from "@/lib/queries";
 
 const attachmentSchema = z.object({
-  url: z.string().min(1).max(1024),
+  url: z.string().min(1),
   name: z.string().min(1).max(255),
   contentType: z.string().max(255),
   size: z.number().int().nonnegative(),

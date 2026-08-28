@@ -806,15 +806,42 @@ export function MessageThread({
         setUploading(true);
         try {
           const atts = await uploadAll([file]);
-          socket?.emit("message:send", {
-            conversationId,
-            content: "",
-            attachments: atts,
-            replyToId: replyingTo?.id,
-            expireSeconds: expireSeconds || undefined,
-          });
+          if (socket?.connected) {
+            socket.emit("message:send", {
+              conversationId,
+              content: "",
+              attachments: atts,
+              replyToId: replyingTo?.id,
+              expireSeconds: expireSeconds || undefined,
+            });
+          } else {
+            const res = await fetch("/api/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                conversationId,
+                content: "",
+                attachments: atts,
+                replyToId: replyingTo?.id,
+                expireSeconds: expireSeconds || undefined,
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.message) {
+                setMessages((prev) => {
+                  if (prev.some((m) => m.id === data.message.id)) return prev;
+                  return [...prev, data.message];
+                });
+              }
+            } else {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.error ?? "Failed to send voice message");
+            }
+          }
           setReplyingTo(null);
-        } catch {
+        } catch (err) {
+          console.error("Voice message error:", err);
           alert("Couldn't send the voice message.");
         }
         setUploading(false);

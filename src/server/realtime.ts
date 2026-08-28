@@ -17,7 +17,7 @@ const roomFor = (conversationId: string) => `conv:${conversationId}`;
 const userRoom = (userId: string) => `user:${userId}`;
 
 const attachmentSchema = z.object({
-  url: z.string().min(1).max(1024),
+  url: z.string().min(1),
   name: z.string().min(1).max(255),
   contentType: z.string().max(255),
   size: z.number().int().nonnegative(),
