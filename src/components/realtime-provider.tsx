@@ -101,6 +101,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+    // In serverless environments like Vercel without a dedicated socket URL,
+    // do not attempt socket connection to prevent HTTP connection pool stalls.
+    if (!socketUrl && process.env.NODE_ENV === "production") return;
+
     let active = true;
     let socket: AppClientSocket | null = null;
 
@@ -108,13 +113,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       const token = await fetchToken();
       if (!active || !token) return;
 
-      // Same-origin in local/single-host setups; point at a dedicated realtime
-      // host (e.g. Railway/Render) in serverless deploys via NEXT_PUBLIC_SOCKET_URL.
-      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || undefined;
-      socket = io(socketUrl, {
+      socket = io(socketUrl || undefined, {
         auth: { token },
-        // Refresh the auth token on every (re)connection attempt.
-        transports: ["websocket", "polling"],
+        transports: ["websocket"],
+        timeout: 5000,
+        reconnectionAttempts: 5,
         withCredentials: true,
       });
       socketRef.current = socket;
