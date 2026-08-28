@@ -30,6 +30,7 @@ import {
   CalendarClock,
   ChevronUp,
   ChevronDown,
+  Maximize2,
 } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { Avatar } from "@/components/avatar";
@@ -41,12 +42,18 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function isImage(contentType: string) {
-  return contentType.startsWith("image/");
+function isImage(contentType?: string, url?: string, name?: string) {
+  if (contentType && contentType.startsWith("image/")) return true;
+  if (url && (url.startsWith("data:image/") || /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|heic|avif)($|\?)/i.test(url))) return true;
+  if (name && /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|heic|avif)$/i.test(name)) return true;
+  return false;
 }
 
-function isAudio(contentType: string) {
-  return contentType.startsWith("audio/");
+function isAudio(contentType?: string, url?: string, name?: string) {
+  if (contentType && contentType.startsWith("audio/")) return true;
+  if (url && (url.startsWith("data:audio/") || /\.(mp3|wav|ogg|webm|m4a|aac|opus)($|\?)/i.test(url))) return true;
+  if (name && /\.(mp3|wav|ogg|webm|m4a|aac|opus)$/i.test(name)) return true;
+  return false;
 }
 
 function formatTime(iso: string) {
@@ -334,6 +341,7 @@ export function MessageThread({
   const [suggest, setSuggest] = useState<{ open: boolean; loading: boolean; list: string[]; error: string }>(
     { open: false, loading: false, list: [], error: "" },
   );
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
   // Search + scheduled send.
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1178,6 +1186,7 @@ export function MessageThread({
             onEdit={startEdit}
             onDelete={deleteMessage}
             onJumpTo={scrollToMessage}
+            onPreviewImage={(url, name) => setPreviewImage({ url, name })}
           />
         ))}
 
@@ -1560,6 +1569,52 @@ export function MessageThread({
           </div>
         )}
       </form>
+
+      {/* Image Lightbox Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="flex w-full max-w-4xl items-center justify-between pb-3 text-white"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="min-w-0 flex-1 pr-4">
+              <span className="block truncate text-sm font-medium text-white/90">{previewImage.name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={previewImage.url}
+                download={previewImage.name}
+                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20"
+                title="Download image"
+              >
+                <Download size={14} /> Download
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white"
+                title="Close (Esc)"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          <div
+            className="relative flex max-h-[85vh] max-w-[90vw] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/50 p-1 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewImage.url}
+              alt={previewImage.name}
+              className="max-h-[80vh] max-w-[85vw] rounded-xl object-contain select-none"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1585,6 +1640,7 @@ const MessageRow = memo(function MessageRow({
   onEdit,
   onDelete,
   onJumpTo,
+  onPreviewImage,
 }: {
   m: MessageDTO;
   prev: MessageDTO | undefined;
@@ -1603,6 +1659,7 @@ const MessageRow = memo(function MessageRow({
   onEdit: (m: MessageDTO) => void;
   onDelete: (id: string) => void;
   onJumpTo: (id: string) => void;
+  onPreviewImage: (url: string, name: string) => void;
 }) {
   const mine = m.sender.id === currentUserId;
   const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
@@ -1687,18 +1744,30 @@ const MessageRow = memo(function MessageRow({
                   </div>
                 )}
                 {m.attachments.length > 0 && (
-                  <div className="mt-1.5 space-y-1.5">
+                  <div className="mt-1.5 space-y-2">
                     {m.attachments.map((a) =>
-                      isImage(a.contentType) ? (
-                        <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="block">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={a.url}
-                            alt={a.name}
-                            className="max-h-64 max-w-full rounded-xl border border-white/10"
-                          />
-                        </a>
-                      ) : isAudio(a.contentType) ? (
+                      isImage(a.contentType, a.url, a.name) ? (
+                        <div key={a.url} className="mt-1">
+                          <button
+                            type="button"
+                            onClick={() => onPreviewImage(a.url, a.name)}
+                            className="group/img relative block overflow-hidden rounded-2xl border border-white/15 bg-black/20 shadow-lg transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={a.url}
+                              alt={a.name}
+                              className="max-h-72 max-w-full rounded-2xl object-cover transition duration-300 group-hover/img:scale-[1.02]"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover/img:opacity-100 backdrop-blur-[2px]">
+                              <span className="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur-md">
+                                <Maximize2 size={13} /> View full image
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+                      ) : isAudio(a.contentType, a.url, a.name) ? (
                         <div
                           key={a.url}
                           className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
