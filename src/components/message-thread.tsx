@@ -1789,21 +1789,25 @@ const MessageRow = memo(function MessageRow({
                     {renderText(m.content, searchHighlight)}
                   </div>
                 )}
-                {m.attachments.length > 0 && (
-                  <div className="mt-1.5 space-y-2">
-                    {m.attachments.map((a) =>
-                      isImage(a.contentType, a.url, a.name) ? (
-                        <div key={a.url} className="mt-1">
+                {m.attachments.length > 0 && (() => {
+                  const images = m.attachments.filter((a) => isImage(a.contentType, a.url, a.name));
+                  const others = m.attachments.filter((a) => !isImage(a.contentType, a.url, a.name));
+
+                  return (
+                    <div className="mt-2 space-y-2">
+                      {/* Image Grid: 1 image or 2-column grid for multiple images */}
+                      {images.length === 1 ? (
+                        <div className="overflow-hidden rounded-2xl">
                           <button
                             type="button"
-                            onClick={() => onPreviewImage(a.url, a.name)}
-                            className="group/img relative block overflow-hidden rounded-2xl border border-white/15 bg-black/20 shadow-lg transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
+                            onClick={() => onPreviewImage(images[0].url, images[0].name)}
+                            className="group/img relative block max-w-sm overflow-hidden rounded-2xl border border-white/15 bg-black/20 shadow-md transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
-                              src={a.url}
-                              alt={a.name}
-                              className="max-h-72 max-w-full rounded-2xl object-cover transition duration-300 group-hover/img:scale-[1.02]"
+                              src={images[0].url}
+                              alt={images[0].name}
+                              className="max-h-72 w-full object-cover rounded-2xl transition duration-300 group-hover/img:scale-[1.02]"
                               loading="lazy"
                             />
                             <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover/img:opacity-100 backdrop-blur-[2px]">
@@ -1813,38 +1817,71 @@ const MessageRow = memo(function MessageRow({
                             </div>
                           </button>
                         </div>
-                      ) : isAudio(a.contentType, a.url, a.name) ? (
-                        <div
-                          key={a.url}
-                          className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
-                            mine ? "bg-white/15" : "bg-white/[0.06]"
-                          }`}
-                        >
-                          <Mic size={16} className="shrink-0 opacity-80" />
-                          <audio src={a.url} controls className="h-8 max-w-[200px]" />
+                      ) : images.length > 1 ? (
+                        <div className="grid grid-cols-2 gap-1.5 sm:gap-2 max-w-sm sm:max-w-md">
+                          {images.map((a, idx) => (
+                            <button
+                              key={a.url || idx}
+                              type="button"
+                              onClick={() => onPreviewImage(a.url, a.name)}
+                              className="group/img relative aspect-square w-full overflow-hidden rounded-xl border border-white/15 bg-black/30 shadow-md transition duration-200 hover:border-indigo-400/60 hover:shadow-indigo-500/25 text-left cursor-zoom-in"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={a.url}
+                                alt={a.name}
+                                className="h-full w-full object-cover transition duration-300 group-hover/img:scale-105"
+                                loading="lazy"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover/img:opacity-100 backdrop-blur-[2px]">
+                                <span className="flex items-center gap-1 rounded-full bg-black/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md backdrop-blur-md">
+                                  <Maximize2 size={12} /> Full view
+                                </span>
+                              </div>
+                            </button>
+                          ))}
                         </div>
-                      ) : (
-                        <a
-                          key={a.url}
-                          href={a.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          download={a.name}
-                          className={`group/att flex items-center gap-3 rounded-xl px-3 py-2 ${
-                            mine ? "bg-white/15" : "bg-white/[0.06]"
-                          }`}
-                        >
-                          <FileText size={20} className="shrink-0 opacity-80" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">{a.name}</span>
-                            <span className="block text-[11px] opacity-70">{formatBytes(a.size)}</span>
-                          </span>
-                          <Download size={16} className="shrink-0 opacity-50 transition group-hover/att:opacity-100" />
-                        </a>
-                      ),
-                    )}
-                  </div>
-                )}
+                      ) : null}
+
+                      {/* Non-image attachments (voice notes & files) */}
+                      {others.length > 0 && (
+                        <div className="space-y-1.5">
+                          {others.map((a) =>
+                            isAudio(a.contentType, a.url, a.name) ? (
+                              <div
+                                key={a.url}
+                                className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
+                                  mine ? "bg-white/15" : "bg-white/[0.06]"
+                                }`}
+                              >
+                                <Mic size={16} className="shrink-0 opacity-80" />
+                                <audio src={a.url} controls className="h-8 max-w-[200px]" />
+                              </div>
+                            ) : (
+                              <a
+                                key={a.url}
+                                href={a.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                download={a.name}
+                                className={`group/att flex items-center gap-3 rounded-xl px-3 py-2 ${
+                                  mine ? "bg-white/15" : "bg-white/[0.06]"
+                                }`}
+                              >
+                                <FileText size={20} className="shrink-0 opacity-80" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-medium">{a.name}</span>
+                                  <span className="block text-[11px] opacity-70">{formatBytes(a.size)}</span>
+                                </span>
+                                <Download size={16} className="shrink-0 opacity-50 transition group-hover/att:opacity-100" />
+                              </a>
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </>
             )}
 
