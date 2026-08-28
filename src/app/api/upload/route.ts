@@ -1,17 +1,8 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { put } from "@vercel/blob";
 import { auth } from "@/auth";
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
-
-function safeExt(filename: string): string {
-  const ext = path.extname(filename).toLowerCase();
-  // Allow a conservative set of characters only.
-  return /^\.[a-z0-9]{1,8}$/.test(ext) ? ext : "";
-}
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -31,16 +22,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File exceeds 25 MB limit" }, { status: 413 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const filename = `${randomUUID()}${safeExt(file.name)}`;
+  try {
+    const blob = await put(file.name, file, { access: "public" });
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
-  await writeFile(path.join(UPLOAD_DIR, filename), buffer);
-
-  return NextResponse.json({
-    url: `/uploads/${filename}`,
-    name: file.name,
-    contentType: file.type || "application/octet-stream",
-    size: file.size,
-  });
+    return NextResponse.json({
+      url: blob.url,
+      name: file.name,
+      contentType: file.type || "application/octet-stream",
+      size: file.size,
+    });
+  } catch (err) {
+    console.error("Vercel Blob Upload Error:", err);
+    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  }
 }

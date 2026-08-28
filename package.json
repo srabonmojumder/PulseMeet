@@ -34,6 +34,7 @@
     "@livekit/components-react": "^2.9.21",
     "@livekit/components-styles": "^1.2.0",
     "@prisma/client": "^6.19.3",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^3.0.3",
     "livekit-client": "^2.19.2",
     "livekit-server-sdk": "^2.15.4",

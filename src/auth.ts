@@ -11,6 +11,7 @@ export const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "pulsemeet-secret-fallback-key-for-auth-2026-production",
   session: { strategy: "jwt" },
   trustHost: true,
   pages: { signIn: "/login" },
