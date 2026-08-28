@@ -73,6 +73,33 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     };
   }, [incomingCall]);
 
+  // Presence heartbeat & online users polling
+  useEffect(() => {
+    let active = true;
+    const syncPresence = async () => {
+      try {
+        const postRes = await fetch("/api/presence", { method: "POST" });
+        if (postRes.ok && active) {
+          setConnected(true);
+        }
+        const getRes = await fetch("/api/presence");
+        if (getRes.ok && active) {
+          const data = await getRes.json();
+          if (Array.isArray(data.onlineUsers)) {
+            setOnlineUsers(new Set(data.onlineUsers));
+          }
+        }
+      } catch {}
+    };
+
+    syncPresence();
+    const interval = setInterval(syncPresence, 8_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     let active = true;
     let socket: AppClientSocket | null = null;

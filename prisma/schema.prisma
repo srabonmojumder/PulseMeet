@@ -20,6 +20,7 @@ model User {
   bio          String?
   avatarData   Bytes? // profile photo bytes, stored in DB so it survives redeploys
   avatarType   String? // mime type of avatarData
+  lastSeenAt   DateTime? // timestamp of last user activity
   createdAt    DateTime @default(now())
 
   memberships ConversationMember[]
